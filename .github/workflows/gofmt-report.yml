@@ -1,0 +1,28 @@
+name: gofmt-report
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Print gofmt diff
+        shell: bash
+        run: |
+          gofmt -d $(git ls-files '*.go') > /tmp/gofmt.diff
+          if [[ -s /tmp/gofmt.diff ]]; then
+            sed -n '1,1600p' /tmp/gofmt.diff
+            exit 1
+          fi
