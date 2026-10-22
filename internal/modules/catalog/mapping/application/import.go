@@ -267,8 +267,8 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 				SKUCode:         upSKU.SKUCode,
 				SpecValuesJSON:  upSKU.SpecValues,
 				PriceAmount:     money.FromDecimal(localPrice.Round(2)),
-				CostPriceAmount:  money.FromDecimal(localCost.Round(2)), // 成本价 = 上游价格 × 汇率（本地币种）
-				IsActive:         upSKU.IsActive && !isSMMPanel,
+				CostPriceAmount: money.FromDecimal(localCost.Round(2)), // 成本价 = 上游价格 × 汇率（本地币种）
+				IsActive:        upSKU.IsActive && !isSMMPanel,
 				SortOrder:       0,
 			}
 			if err := repos.SKUs.Create(&localSKU); err != nil {
@@ -280,13 +280,13 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 		// 如果没有 SKU，创建默认 SKU
 		if len(upProduct.SKUs) == 0 {
 			defaultSKU := productdomain.ProductSKU{
-				ProductID:      product.ID,
-				SKUCode:        productdomain.DefaultSKUCode,
-				SpecValuesJSON: jsonmap.JSON{},
-				PriceAmount:    money.FromDecimal(priceAmount.Round(2)),
+				ProductID:       product.ID,
+				SKUCode:         productdomain.DefaultSKUCode,
+				SpecValuesJSON:  jsonmap.JSON{},
+				PriceAmount:     money.FromDecimal(priceAmount.Round(2)),
 				CostPriceAmount: money.FromDecimal(costPriceAmount.Round(2)),
-				IsActive:       !isSMMPanel,
-				SortOrder:      0,
+				IsActive:        !isSMMPanel,
+				SortOrder:       0,
 			}
 			if err := repos.SKUs.Create(&defaultSKU); err != nil {
 				return fmt.Errorf("create default sku: %w", err)

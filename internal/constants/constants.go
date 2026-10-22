@@ -445,8 +445,8 @@ const (
 
 // 上游服务价格单位。
 const (
-	PricingUnitPer1000 = "per_1000"
-	PricingUnitPerUnit = "per_unit"
+	PricingUnitPer1000  = "per_1000"
+	PricingUnitPerUnit  = "per_unit"
 	PricingUnitPerOrder = "per_order"
 )
 

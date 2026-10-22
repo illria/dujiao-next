@@ -28,15 +28,15 @@ type Connection struct {
 	PriceRoundingMode  string          `gorm:"type:varchar(20);not null;default:'none'" json:"price_rounding_mode"` // none / ceil_int / ceil_tenth
 	AutoSyncPrice      bool            `gorm:"not null;default:false" json:"auto_sync_price"`                       // 同步时自动更新本地价格
 	// SMM 专用定价配置。所有 Decimal 文本均保留原始定点语义，不通过 float64 往返。
-	SourceCurrency          string `gorm:"type:varchar(16)" json:"source_currency,omitempty"`
-	SourceToUSDT            string `gorm:"type:varchar(64)" json:"source_to_usdt_rate,omitempty"`
-	ExchangeRateBufferBPS   int    `gorm:"not null;default:0" json:"exchange_rate_buffer_bps"`
-	MarkupMultiplier        string `gorm:"type:varchar(64);not null;default:'2'" json:"markup_multiplier"`
-	MinimumOrderAmountUSDT  string `gorm:"type:varchar(64);not null;default:'1'" json:"minimum_order_amount_usdt"`
-	DefaultPricingUnit      string `gorm:"type:varchar(16);not null;default:'per_1000'" json:"default_pricing_unit"`
-	CreatedAt          time.Time       `gorm:"index" json:"created_at"`
-	UpdatedAt          time.Time       `gorm:"index" json:"updated_at"`
-	DeletedAt          *time.Time      `gorm:"index" json:"-"`
+	SourceCurrency         string     `gorm:"type:varchar(16)" json:"source_currency,omitempty"`
+	SourceToUSDT           string     `gorm:"type:varchar(64)" json:"source_to_usdt_rate,omitempty"`
+	ExchangeRateBufferBPS  int        `gorm:"not null;default:0" json:"exchange_rate_buffer_bps"`
+	MarkupMultiplier       string     `gorm:"type:varchar(64);not null;default:'2'" json:"markup_multiplier"`
+	MinimumOrderAmountUSDT string     `gorm:"type:varchar(64);not null;default:'1'" json:"minimum_order_amount_usdt"`
+	DefaultPricingUnit     string     `gorm:"type:varchar(16);not null;default:'per_1000'" json:"default_pricing_unit"`
+	CreatedAt              time.Time  `gorm:"index" json:"created_at"`
+	UpdatedAt              time.Time  `gorm:"index" json:"updated_at"`
+	DeletedAt              *time.Time `gorm:"index" json:"-"`
 }
 
 // TableName 指定表名

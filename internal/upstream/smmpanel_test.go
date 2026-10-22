@@ -196,10 +196,10 @@ func TestSMMPanelAdapterWriteIsDisabledWithoutCallingAdd(t *testing.T) {
 func TestSMMPanelAdapterNormalizesHTTPAndAPIErrors(t *testing.T) {
 	t.Setenv(constants.ConnectionSecretRefSMMPanel, "test-only-key")
 	for _, test := range []struct {
-		name       string
-		status     int
-		body       string
-		wantKind   error
+		name     string
+		status   int
+		body     string
+		wantKind error
 	}{
 		{name: "unauthorized", status: http.StatusUnauthorized, body: `{"error":"bad key"}`, wantKind: ErrSMMPanelAuthentication},
 		{name: "insufficient balance", status: http.StatusPaymentRequired, body: `{"error":"balance"}`, wantKind: ErrSMMPanelInsufficientBalance},

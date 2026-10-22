@@ -17,27 +17,27 @@ var (
 )
 
 var (
-	ErrSMMSourceCurrencyMissing       = errors.New("smm source currency is required")
-	ErrSMMExchangeRateMissing         = errors.New("smm source to usdt rate is required")
-	ErrSMMExchangeRateInvalid         = errors.New("smm source to usdt rate must be positive")
-	ErrSMMMarkupMultiplierInvalid     = errors.New("smm markup multiplier must be at least 1")
-	ErrSMMMinimumAmountInvalid        = errors.New("smm minimum order amount must be positive")
-	ErrSMMPricingUnitInvalid          = errors.New("smm pricing unit is invalid")
-	ErrSMMRateInvalid                 = errors.New("smm rate must be a non-negative decimal")
-	ErrSMMQuantityInvalid             = errors.New("smm quantity must be positive")
-	ErrSMMCurrencyMismatch            = errors.New("smm balance currency does not match source currency")
-	ErrSMMMinimumOrderUnreachable     = errors.New("smm minimum order amount cannot be reached")
-	ErrSMMMinimumExceedsMaximum       = errors.New("smm minimum order quantity exceeds upstream maximum")
+	ErrSMMSourceCurrencyMissing        = errors.New("smm source currency is required")
+	ErrSMMExchangeRateMissing          = errors.New("smm source to usdt rate is required")
+	ErrSMMExchangeRateInvalid          = errors.New("smm source to usdt rate must be positive")
+	ErrSMMMarkupMultiplierInvalid      = errors.New("smm markup multiplier must be at least 1")
+	ErrSMMMinimumAmountInvalid         = errors.New("smm minimum order amount must be positive")
+	ErrSMMPricingUnitInvalid           = errors.New("smm pricing unit is invalid")
+	ErrSMMRateInvalid                  = errors.New("smm rate must be a non-negative decimal")
+	ErrSMMQuantityInvalid              = errors.New("smm quantity must be positive")
+	ErrSMMCurrencyMismatch             = errors.New("smm balance currency does not match source currency")
+	ErrSMMMinimumOrderUnreachable      = errors.New("smm minimum order amount cannot be reached")
+	ErrSMMMinimumExceedsMaximum        = errors.New("smm minimum order quantity exceeds upstream maximum")
 	ErrSMMUpstreamQuantityRangeInvalid = errors.New("smm upstream quantity range is invalid")
 )
 
 const (
-	smmPricingMode                 = "smm_rate"
+	smmPricingMode                  = "smm_rate"
 	smmReasonServiceTypeUnsupported = "service_type_not_supported"
-	smmReasonPricingMissing        = "pricing_configuration_missing"
-	smmReasonPricingInvalid        = "pricing_configuration_invalid"
-	smmReasonRateInvalid           = "rate_invalid"
-	smmReasonMinimumUnreachable    = "minimum_order_unreachable"
+	smmReasonPricingMissing         = "pricing_configuration_missing"
+	smmReasonPricingInvalid         = "pricing_configuration_invalid"
+	smmReasonRateInvalid            = "rate_invalid"
+	smmReasonMinimumUnreachable     = "minimum_order_unreachable"
 )
 
 // SMMPriceConfig contains the fixed-point pricing inputs for an SMM service.

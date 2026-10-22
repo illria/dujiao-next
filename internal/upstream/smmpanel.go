@@ -32,17 +32,17 @@ var (
 	// ErrSMMPanelAPIKeyRefInvalid 表示秘密引用不是合法的环境变量名。
 	ErrSMMPanelAPIKeyRefInvalid = errors.New("smm panel api key environment variable name is invalid")
 	// ErrSMMPanelAuthentication 表示 API Key 无效或已失效。
-	ErrSMMPanelAuthentication     = errors.New("smm panel authentication failed")
-	ErrSMMPanelCurrencyMismatch   = errors.New("smm panel balance currency does not match source currency")
+	ErrSMMPanelAuthentication      = errors.New("smm panel authentication failed")
+	ErrSMMPanelCurrencyMismatch    = errors.New("smm panel balance currency does not match source currency")
 	ErrSMMPanelInsufficientBalance = errors.New("smm panel balance is insufficient")
-	ErrSMMPanelConflict           = errors.New("smm panel request conflict or service unavailable")
-	ErrSMMPanelRateLimited        = errors.New("smm panel request is rate limited")
+	ErrSMMPanelConflict            = errors.New("smm panel request conflict or service unavailable")
+	ErrSMMPanelRateLimited         = errors.New("smm panel request is rate limited")
 	// ErrSMMPanelRetryable 表示只读请求遇到网络、超时、限流或 5xx。
 	ErrSMMPanelRetryable = errors.New("smm panel request is retryable")
 	// ErrSMMPanelInvalidRequest 表示请求或响应格式不合法。
 	ErrSMMPanelInvalidRequest = errors.New("smm panel request is invalid")
 	// ErrSMMPanelReadOnly 表示步骤一明确禁用的写入或订单接口。
-	ErrSMMPanelReadOnly          = errors.New("smm panel write operation is disabled")
+	ErrSMMPanelReadOnly        = errors.New("smm panel write operation is disabled")
 	ErrSMMPanelServiceNotFound = errors.New("smm panel service not found")
 )
 
@@ -319,9 +319,9 @@ func hasSMMPanelError(body []byte) bool {
 }
 
 type smmPanelBalanceEnvelope struct {
-	Balance  flexibleString             `json:"balance"`
-	Currency string                     `json:"currency"`
-	Data     *smmPanelBalanceEnvelope   `json:"data"`
+	Balance  flexibleString           `json:"balance"`
+	Currency string                   `json:"currency"`
+	Data     *smmPanelBalanceEnvelope `json:"data"`
 }
 
 func decodeSMMPanelBalance(raw json.RawMessage) (*SMMPanelBalance, error) {
@@ -339,17 +339,17 @@ func decodeSMMPanelBalance(raw json.RawMessage) (*SMMPanelBalance, error) {
 }
 
 type smmPanelService struct {
-	Service     flexibleString `json:"service"`
-	ID          flexibleString `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	DescriptionAlt string      `json:"desc"`
-	Category    string         `json:"category"`
-	Type        string         `json:"type"`
-	Rate        flexibleString `json:"rate"`
-	Min         flexibleString `json:"min"`
-	Max         flexibleString `json:"max"`
-	Raw         jsonmap.JSON   `json:"-"`
+	Service        flexibleString `json:"service"`
+	ID             flexibleString `json:"id"`
+	Name           string         `json:"name"`
+	Description    string         `json:"description"`
+	DescriptionAlt string         `json:"desc"`
+	Category       string         `json:"category"`
+	Type           string         `json:"type"`
+	Rate           flexibleString `json:"rate"`
+	Min            flexibleString `json:"min"`
+	Max            flexibleString `json:"max"`
+	Raw            jsonmap.JSON   `json:"-"`
 }
 
 func decodeSMMPanelServices(raw json.RawMessage) ([]UpstreamProduct, error) {
@@ -457,23 +457,23 @@ func (s smmPanelService) toUpstreamProduct() UpstreamProduct {
 	}
 
 	product := UpstreamProduct{
-		Title:             localizedJSON(name),
-		Description:       localizedJSON(description),
-		PriceAmount:       string(s.Rate),
-		UpstreamRate:      string(s.Rate),
-		PricingUnit:       constants.PricingUnitPer1000,
-		ServiceType:       serviceType,
-		SourceCategory:    strings.TrimSpace(s.Category),
-		MinQuantity:       minQuantity,
-		MaxQuantity:       maxQuantity,
-		Orderable:         orderable,
-		UnsupportedReason: unsupportedReason,
-		ServiceParameters: metadata,
-		FulfillmentType:   constants.FulfillmentTypeAuto,
+		Title:                   localizedJSON(name),
+		Description:             localizedJSON(description),
+		PriceAmount:             string(s.Rate),
+		UpstreamRate:            string(s.Rate),
+		PricingUnit:             constants.PricingUnitPer1000,
+		ServiceType:             serviceType,
+		SourceCategory:          strings.TrimSpace(s.Category),
+		MinQuantity:             minQuantity,
+		MaxQuantity:             maxQuantity,
+		Orderable:               orderable,
+		UnsupportedReason:       unsupportedReason,
+		ServiceParameters:       metadata,
+		FulfillmentType:         constants.FulfillmentTypeAuto,
 		RequiresEmailActivation: false,
-		InStock:           true,
-		Stock:             -1,
-		IsActive:          serviceID != "",
+		InStock:                 true,
+		Stock:                   -1,
+		IsActive:                serviceID != "",
 	}
 	if serviceID == "" {
 		product.IsActive = false

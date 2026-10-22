@@ -154,9 +154,9 @@ func TestCalculateSMMPriceUsesFixedPointAndCeilsToCent(t *testing.T) {
 				t.Fatalf("CalculateSMMPrice() error = %v", err)
 			}
 			for name, got := range map[string]decimal.Decimal{
-				"raw cost":      result.RawCost,
+				"raw cost":       result.RawCost,
 				"converted cost": result.ConvertedCost,
-				"sell price":    result.SellPrice,
+				"sell price":     result.SellPrice,
 			} {
 				var expected string
 				switch name {

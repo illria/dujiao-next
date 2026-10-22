@@ -58,15 +58,15 @@ type UpstreamProduct struct {
 	ID uint `json:"id"`
 	// ExternalID 保存非数字协议（如 ProdSeller）的原始商品 ID。
 	// 当 ExternalID 非空时，ID 必须保持为 0，禁止截断或哈希映射到 uint。
-	ExternalID              string                            `json:"external_id,omitempty"`
-	Slug                    string                            `json:"slug"`
-	SeoMeta                 jsonmap.JSON                      `json:"seo_meta"`
-	Title                   jsonmap.JSON                      `json:"title"`
-	Description             jsonmap.JSON                      `json:"description"`
-	Content                 jsonmap.JSON                      `json:"content"`
-	Images                  []string                          `json:"images"`
-	Tags                    []string                          `json:"tags"`
-	PriceAmount             string                            `json:"price_amount"`
+	ExternalID  string       `json:"external_id,omitempty"`
+	Slug        string       `json:"slug"`
+	SeoMeta     jsonmap.JSON `json:"seo_meta"`
+	Title       jsonmap.JSON `json:"title"`
+	Description jsonmap.JSON `json:"description"`
+	Content     jsonmap.JSON `json:"content"`
+	Images      []string     `json:"images"`
+	Tags        []string     `json:"tags"`
+	PriceAmount string       `json:"price_amount"`
 	// UpstreamRate 保存上游原始费率文本。与 PriceAmount 不同，它不承诺两位小数，
 	// 供 SMM 等按数量和价格单位计算的来源使用。
 	UpstreamRate            string                            `json:"upstream_rate,omitempty"`
