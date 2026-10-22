@@ -15,6 +15,12 @@ type CreateInput struct {
 	PriceMarkupPercent float64 `json:"price_markup_percent"`
 	PriceRoundingMode  string  `json:"price_rounding_mode"`
 	AutoSyncPrice      bool    `json:"auto_sync_price"`
+	SourceCurrency         string `json:"source_currency"`
+	SourceToUSDT           string `json:"source_to_usdt_rate"`
+	ExchangeRateBufferBPS  int    `json:"exchange_rate_buffer_bps"`
+	MarkupMultiplier       string `json:"markup_multiplier"`
+	MinimumOrderAmountUSDT string `json:"minimum_order_amount_usdt"`
+	DefaultPricingUnit     string `json:"default_pricing_unit"`
 }
 
 // UpdateInput 更新对接连接输入。
@@ -32,6 +38,12 @@ type UpdateInput struct {
 	PriceMarkupPercent *float64 `json:"price_markup_percent"` // 指针类型，区分 0 和未传
 	PriceRoundingMode  *string  `json:"price_rounding_mode"`
 	AutoSyncPrice      *bool    `json:"auto_sync_price"`
+	SourceCurrency         *string `json:"source_currency"`
+	SourceToUSDT           *string `json:"source_to_usdt_rate"`
+	ExchangeRateBufferBPS  *int    `json:"exchange_rate_buffer_bps"`
+	MarkupMultiplier       *string `json:"markup_multiplier"`
+	MinimumOrderAmountUSDT *string `json:"minimum_order_amount_usdt"`
+	DefaultPricingUnit     *string `json:"default_pricing_unit"`
 }
 
 // PingResult 连接测试结果。

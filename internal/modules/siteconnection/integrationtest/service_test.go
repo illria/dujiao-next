@@ -75,6 +75,90 @@ func TestSiteConnectionServiceProdSellerStoresOnlySecretReference(t *testing.T) 
 	}
 }
 
+func TestSiteConnectionServiceSMMStoresOnlySecretReferenceAndPricing(t *testing.T) {
+	repo := &siteConnectionRepoStub{}
+	svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+
+	conn, err := svc.Create(siteconnectionapp.CreateInput{
+		Name:                   "SMM Panel",
+		Protocol:               constants.ConnectionProtocolSMMPanel,
+		SourceCurrency:         "usd",
+		SourceToUSDT:           "1.000000",
+		ExchangeRateBufferBPS:  25,
+		MarkupMultiplier:       "2.5",
+		MinimumOrderAmountUSDT: "1.25",
+		DefaultPricingUnit:     constants.PricingUnitPer1000,
+	})
+	if err != nil {
+		t.Fatalf("create SMM connection failed: %v", err)
+	}
+	if conn.ApiKey != "" || conn.ApiSecret != "" {
+		t.Fatalf("SMM connection must not persist API credentials: %#v", conn)
+	}
+	if conn.SecretRef != constants.ConnectionSecretRefSMMPanel {
+		t.Fatalf("secret ref = %q", conn.SecretRef)
+	}
+	if conn.BaseURL != "https://116212.vip/api/v2" {
+		t.Fatalf("default base URL = %q", conn.BaseURL)
+	}
+	if conn.SourceCurrency != "USD" || conn.SourceToUSDT != "1.000000" || conn.ExchangeRateBufferBPS != 25 {
+		t.Fatalf("SMM currency conversion config = %#v", conn)
+	}
+	if conn.MarkupMultiplier != "2.5" || conn.MinimumOrderAmountUSDT != "1.25" || conn.DefaultPricingUnit != constants.PricingUnitPer1000 {
+		t.Fatalf("SMM pricing config = %#v", conn)
+	}
+	if conn.PriceRoundingMode != "ceil_cent" || !conn.AutoSyncPrice {
+		t.Fatalf("SMM defaults = rounding %q auto_sync=%v", conn.PriceRoundingMode, conn.AutoSyncPrice)
+	}
+}
+
+func TestSiteConnectionServiceSMMAllowsMissingPricingButRejectsNonPositiveRate(t *testing.T) {
+	tests := []struct {
+		name string
+		rate string
+		want bool
+	}{
+		{name: "missing rate is allowed for fail closed catalog", rate: "", want: true},
+		{name: "zero rate is rejected", rate: "0", want: false},
+		{name: "negative rate is rejected", rate: "-1", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &siteConnectionRepoStub{}
+			svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+			_, err := svc.Create(siteconnectionapp.CreateInput{
+				Name:           "SMM Panel",
+				Protocol:       constants.ConnectionProtocolSMMPanel,
+				SourceCurrency: "USD",
+				SourceToUSDT:   tt.rate,
+			})
+			if (err == nil) != tt.want {
+				t.Fatalf("create error = %v, want success=%v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestSiteConnectionServiceSMMUpdateRejectsNonPositiveRate(t *testing.T) {
+	repo := &siteConnectionRepoStub{conn: &siteconnectiondomain.Connection{
+		ID:             11,
+		Name:           "SMM Panel",
+		Protocol:       constants.ConnectionProtocolSMMPanel,
+		SecretRef:      constants.ConnectionSecretRefSMMPanel,
+		BaseURL:        "https://116212.vip/api/v2",
+		SourceCurrency: "USD",
+		SourceToUSDT:   "1",
+	}}
+	svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+	zero := "0"
+	if _, err := svc.Update(11, siteconnectionapp.UpdateInput{SourceToUSDT: &zero}); err != siteconnectioncontract.ErrInvalid {
+		t.Fatalf("zero rate update error = %v, want ErrInvalid", err)
+	}
+	if repo.updated {
+		t.Fatalf("invalid SMM update must not persist")
+	}
+}
+
 type fakeMarkupReapplier struct {
 	calls []uint
 }

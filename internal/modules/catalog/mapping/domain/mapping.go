@@ -5,6 +5,7 @@ import (
 
 	productdomain "github.com/dujiao-next/internal/modules/catalog/product/domain"
 	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
+	"github.com/dujiao-next/internal/shared/jsonmap"
 	"github.com/dujiao-next/internal/shared/money"
 )
 
@@ -27,6 +28,18 @@ type Mapping struct {
 	UpstreamPublicPrice       money.Amount `gorm:"type:decimal(20,2);not null;default:0" json:"upstream_public_price"`
 	UpstreamFulfillmentType   string       `gorm:"type:varchar(20);not null;default:'manual'" json:"upstream_fulfillment_type"` // 上游原始交付类型（auto/manual）
 	UpstreamStatus            string       `gorm:"type:varchar(16);not null;default:'active';index" json:"upstream_status"`     // 上游商品状态：active/inactive/deleted
+	PricingMode               string       `gorm:"type:varchar(20);not null;default:'standard'" json:"pricing_mode"`
+	UpstreamRateText          string       `gorm:"type:varchar(64)" json:"upstream_rate,omitempty"`
+	PricingUnit               string       `gorm:"type:varchar(16)" json:"pricing_unit,omitempty"`
+	UpstreamCurrency          string       `gorm:"type:varchar(16)" json:"upstream_currency,omitempty"`
+	UpstreamServiceType       string       `gorm:"type:varchar(40)" json:"upstream_service_type,omitempty"`
+	UpstreamServiceCategory   string       `gorm:"type:varchar(255)" json:"upstream_service_category,omitempty"`
+	MinQuantity               int          `gorm:"not null;default:0" json:"min_quantity"`
+	MaxQuantity               int          `gorm:"not null;default:0" json:"max_quantity"`
+	EffectiveMinQuantity      int          `gorm:"not null;default:0" json:"effective_min_quantity"`
+	IsOrderable               bool         `gorm:"not null;default:true" json:"is_orderable"`
+	UnsupportedReason         string       `gorm:"type:varchar(255)" json:"unsupported_reason,omitempty"`
+	ServiceParametersJSON     jsonmap.JSON `gorm:"type:json" json:"service_parameters,omitempty"`
 	IsActive                  bool         `gorm:"not null;default:true" json:"is_active"`
 	LastSyncedAt              *time.Time   `json:"last_synced_at,omitempty"`
 	CreatedAt                 time.Time    `gorm:"index" json:"created_at"`
@@ -51,6 +64,8 @@ type SKUMapping struct {
 	// UpstreamSKUExternalID 保存字符串 SKU ID 的完整原值。
 	UpstreamSKUExternalID string       `gorm:"column:upstream_sku_external_id;type:varchar(128);index;uniqueIndex:idx_sku_mapping_external,where:deleted_at IS NULL AND upstream_sku_external_id <> ''" json:"upstream_sku_external_id,omitempty"`
 	UpstreamPrice         money.Amount `gorm:"type:decimal(20,2);not null;default:0" json:"upstream_price"`
+	UpstreamRateText      string       `gorm:"type:varchar(64)" json:"upstream_rate,omitempty"`
+	PricingUnit           string       `gorm:"type:varchar(16)" json:"pricing_unit,omitempty"`
 	UpstreamStock         int          `gorm:"not null;default:0" json:"upstream_stock"`
 	UpstreamIsActive      bool         `gorm:"not null;default:true" json:"upstream_is_active"`
 	StockSyncedAt         *time.Time   `json:"stock_synced_at,omitempty"`

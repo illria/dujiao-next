@@ -575,6 +575,12 @@ export interface AdminSiteConnection {
   price_markup_percent?: number
   price_rounding_mode?: string
   auto_sync_price?: boolean
+  source_currency?: string
+  source_to_usdt_rate?: string
+  exchange_rate_buffer_bps?: number
+  markup_multiplier?: string
+  minimum_order_amount_usdt?: string
+  default_pricing_unit?: string
   created_at: string
   updated_at: string
 }
@@ -595,6 +601,17 @@ export interface AdminProductMapping {
   upstream_currency: string
   is_active: boolean
   upstream_status?: UpstreamProductStatus
+  pricing_mode?: string
+  upstream_rate?: string
+  pricing_unit?: string
+  effective_min_quantity?: number
+  min_quantity?: number
+  max_quantity?: number
+  is_orderable?: boolean
+  unsupported_reason?: string
+  upstream_service_type?: string
+  upstream_service_category?: string
+  service_parameters?: Record<string, unknown>
   last_sync_at?: string
   created_at: string
   updated_at: string

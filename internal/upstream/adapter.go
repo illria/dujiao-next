@@ -67,6 +67,17 @@ type UpstreamProduct struct {
 	Images                  []string                          `json:"images"`
 	Tags                    []string                          `json:"tags"`
 	PriceAmount             string                            `json:"price_amount"`
+	// UpstreamRate 保存上游原始费率文本。与 PriceAmount 不同，它不承诺两位小数，
+	// 供 SMM 等按数量和价格单位计算的来源使用。
+	UpstreamRate            string                            `json:"upstream_rate,omitempty"`
+	PricingUnit             string                            `json:"pricing_unit,omitempty"`
+	ServiceType             string                            `json:"service_type,omitempty"`
+	SourceCategory          string                            `json:"source_category,omitempty"`
+	MinQuantity             int                               `json:"min_quantity,omitempty"`
+	MaxQuantity             int                               `json:"max_quantity,omitempty"`
+	Orderable               bool                              `json:"orderable"`
+	UnsupportedReason       string                            `json:"unsupported_reason,omitempty"`
+	ServiceParameters       jsonmap.JSON                      `json:"service_parameters,omitempty"`
 	OriginalPrice           string                            `json:"original_price,omitempty"`
 	MemberPrice             string                            `json:"member_price,omitempty"`
 	WholesalePrices         productdomain.WholesalePriceTiers `json:"wholesale_prices,omitempty"`
@@ -107,6 +118,8 @@ type UpstreamSKU struct {
 	SKUCode       string       `json:"sku_code"`
 	SpecValues    jsonmap.JSON `json:"spec_values"`
 	PriceAmount   string       `json:"price_amount"`
+	UpstreamRate  string       `json:"upstream_rate,omitempty"`
+	PricingUnit   string       `json:"pricing_unit,omitempty"`
 	OriginalPrice string       `json:"original_price,omitempty"`
 	MemberPrice   string       `json:"member_price,omitempty"`
 	StockStatus   string       `json:"stock_status"`
@@ -213,6 +226,8 @@ func NewAdapter(conn *siteconnectiondomain.Connection, uploadsDir string) (Adapt
 		return NewDujiaoNextAdapter(conn, uploadsDir), nil
 	case constants.ConnectionProtocolProdSeller:
 		return NewProdSellerAdapter(conn, uploadsDir)
+	case constants.ConnectionProtocolSMMPanel:
+		return NewSMMPanelAdapter(conn, uploadsDir)
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", conn.Protocol)
 	}

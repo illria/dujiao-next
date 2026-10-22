@@ -44,6 +44,8 @@ interface SkuMapping {
   upstream_sku_id: number
   upstream_sku_external_id?: string
   upstream_price: number
+  upstream_rate?: string
+  pricing_unit?: string
   upstream_stock: number
   upstream_is_active: boolean
 }
@@ -59,6 +61,8 @@ interface UpstreamSku {
   sku_code?: string
   spec_values?: Record<string, string>
   price_amount: number | string
+  upstream_rate?: string
+  pricing_unit?: string
   stock_status: string
   is_active: boolean
 }
@@ -68,6 +72,14 @@ interface UpstreamProduct {
   external_id?: string
   title: Record<string, string>
   price_amount: number | string
+  upstream_rate?: string
+  pricing_unit?: string
+  service_type?: string
+  source_category?: string
+  min_quantity?: number
+  max_quantity?: number
+  orderable?: boolean
+  unsupported_reason?: string
   currency?: string
   is_active: boolean
   category_id?: number
@@ -166,6 +178,22 @@ const getCategoryOptionLabel = (category: AdminCategory) => {
 
 const getCategoryOptionName = (category: AdminCategory) => {
   return getLocalizedText(category.name)
+}
+
+const isSMMMapping = (mapping: AdminProductMapping) => mapping.pricing_mode === 'smm_rate'
+
+const smmReasonLabel = (reason?: string) => {
+  if (!reason) return ''
+  const key = `productMappings.smmReasons.${reason}`
+  const translated = t(key)
+  return translated === key ? reason : translated
+}
+
+const pricingUnitLabel = (unit?: string) => {
+  if (!unit) return '-'
+  const key = `productMappings.pricingUnits.${unit}`
+  const translated = t(key)
+  return translated === key ? unit : translated
 }
 
 
@@ -872,6 +900,12 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
               <span>{{ t('productMappings.columns.connection') }}: <span class="text-foreground">{{ getConnectionName(mapping.connection_id) }}</span></span>
               <span>{{ t('productMappings.detail.upstreamId') }}: <span class="font-mono text-foreground">{{ mapping.upstream_product_external_id || mapping.upstream_product_id }}</span></span>
               <span>{{ t('productMappings.detail.localPrice') }}: <span class="font-mono text-foreground">{{ getLocalPriceRange(mapping) }}</span></span>
+              <template v-if="isSMMMapping(mapping)">
+                <span>{{ t('productMappings.detail.smmRate') }}: <span class="font-mono text-foreground">{{ mapping.upstream_rate || '-' }}</span></span>
+                <span>{{ t('productMappings.detail.pricingUnit') }}: <span class="text-foreground">{{ pricingUnitLabel(mapping.pricing_unit) }}</span></span>
+                <span>{{ t('productMappings.detail.effectiveMinQuantity') }}: <span class="font-mono text-foreground">{{ mapping.effective_min_quantity || '-' }}</span></span>
+                <span v-if="mapping.is_orderable === false" class="text-amber-700">{{ smmReasonLabel(mapping.unsupported_reason) }}</span>
+              </template>
               <span>SKU: <span class="text-foreground">{{ getLocalSkuCount(mapping) }}</span></span>
               <span>{{ t('productMappings.columns.lastSynced') }}: {{ formatTime((mapping.last_synced_at ?? mapping.last_sync_at) as string | undefined) }}</span>
             </div>
@@ -990,6 +1024,14 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
                 {{ t('productMappings.detail.fulfillmentType') }}:
                 <span class="text-foreground">{{ mapping.product.fulfillment_type }}</span>
               </span>
+              <template v-if="isSMMMapping(mapping)">
+                <span>{{ t('productMappings.detail.smmServiceType') }}: <span class="text-foreground">{{ mapping.upstream_service_type || '-' }}</span></span>
+                <span>{{ t('productMappings.detail.smmCategory') }}: <span class="text-foreground">{{ mapping.upstream_service_category || '-' }}</span></span>
+                <span>{{ t('productMappings.detail.smmCurrency') }}: <span class="text-foreground">{{ mapping.upstream_currency || '-' }}</span></span>
+                <span>{{ t('productMappings.detail.smmQuantityRange') }}: <span class="font-mono text-foreground">{{ mapping.min_quantity || 0 }}–{{ mapping.max_quantity || '∞' }}</span></span>
+                <span>{{ t('productMappings.detail.smmOrderable') }}: <span class="text-foreground">{{ mapping.is_orderable === false ? t('productMappings.detail.smmNotOrderable') : t('productMappings.detail.smmOrderableYes') }}</span></span>
+                <span v-if="mapping.unsupported_reason" class="text-amber-700">{{ smmReasonLabel(mapping.unsupported_reason) }}</span>
+              </template>
             </div>
           </div>
         </div>
@@ -1123,6 +1165,10 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
                         </div>
                         <div class="mt-0.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                           <span>{{ getSkuPriceRange(product) }}<span v-if="product.currency" class="ml-0.5">{{ product.currency }}</span></span>
+                          <span v-if="product.upstream_rate">{{ t('productMappings.detail.smmRate') }}: <span class="font-mono text-foreground">{{ product.upstream_rate }}</span> / {{ pricingUnitLabel(product.pricing_unit) }}</span>
+                          <span v-if="product.service_type">{{ t('productMappings.detail.smmServiceType') }}: <span class="text-foreground">{{ product.service_type }}</span></span>
+                          <span v-if="product.min_quantity != null">{{ t('productMappings.detail.smmQuantityRange') }}: <span class="font-mono text-foreground">{{ product.min_quantity }}–{{ product.max_quantity || '∞' }}</span></span>
+                          <span v-if="product.orderable === false" class="text-amber-700">{{ smmReasonLabel(product.unsupported_reason) }}</span>
                           <span>SKU: {{ product.skus?.length || 0 }}</span>
                           <span :class="getSkuStockClass(product)">{{ getSkuStockSummary(product) }}</span>
                         </div>
@@ -1177,6 +1223,10 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
                       </div>
                       <div class="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                         <span>{{ t('productMappings.import.colPrice') }}: <span class="font-mono text-foreground">{{ getSkuPriceRange(product) }}</span><span v-if="product.currency" class="ml-0.5">{{ product.currency }}</span></span>
+                        <span v-if="product.upstream_rate">{{ t('productMappings.detail.smmRate') }}: <span class="font-mono text-foreground">{{ product.upstream_rate }}</span> / {{ pricingUnitLabel(product.pricing_unit) }}</span>
+                        <span v-if="product.service_type">{{ t('productMappings.detail.smmServiceType') }}: <span class="text-foreground">{{ product.service_type }}</span></span>
+                        <span v-if="product.min_quantity != null">{{ t('productMappings.detail.smmQuantityRange') }}: <span class="font-mono text-foreground">{{ product.min_quantity }}–{{ product.max_quantity || '∞' }}</span></span>
+                        <span v-if="product.orderable === false" class="text-amber-700">{{ smmReasonLabel(product.unsupported_reason) }}</span>
                         <span>SKU: <span class="text-foreground">{{ product.skus?.length || 0 }}</span></span>
                         <span :class="getSkuStockClass(product)">{{ getSkuStockSummary(product) }}</span>
                       </div>

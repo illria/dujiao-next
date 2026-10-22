@@ -134,31 +134,60 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 
 	// 确定交付类型：上游商品映射后统一使用 upstream 类型
 	fulfillmentType := constants.FulfillmentTypeUpstream
+	isSMMPanel := conn.Protocol == constants.ConnectionProtocolSMMPanel
+	smmReference, smmEffectiveMin, smmOrderable, smmReason := SMMPriceResult{}, 0, false, ""
+	if isSMMPanel {
+		smmReference, smmEffectiveMin, smmOrderable, smmReason = smmCatalogPricing(
+			strings.TrimSpace(upProduct.UpstreamRate),
+			upProduct.MinQuantity,
+			upProduct.MaxQuantity,
+			upProduct.Orderable,
+			upProduct.UnsupportedReason,
+			conn,
+		)
+		if strings.TrimSpace(upProduct.UpstreamRate) == "" {
+			smmReference, smmEffectiveMin, smmOrderable, smmReason = smmCatalogPricing(
+				strings.TrimSpace(upProduct.PriceAmount),
+				upProduct.MinQuantity,
+				upProduct.MaxQuantity,
+				upProduct.Orderable,
+				upProduct.UnsupportedReason,
+				conn,
+			)
+		}
+	}
 
 	// 解析价格（先汇率转换，再应用加价比例）
 	exchangeRate := conn.ExchangeRate
 	markupPercent := conn.PriceMarkupPercent
 	roundingMode := conn.PriceRoundingMode
 
-	priceAmount, priceErr := decimal.NewFromString(upProduct.PriceAmount)
-	if priceErr != nil {
-		logger.Warnw("import_product_price_parse_error",
-			"upstream_product_id", upstreamProductID,
-			"price_amount", upProduct.PriceAmount,
-			"error", priceErr,
-		)
-		priceAmount = decimal.Zero
-	}
-	costPriceAmount := convertCurrency(priceAmount, exchangeRate) // 成本价 = 上游价格 × 汇率（本地币种，不含加价）
-	priceAmount = CalculateLocalPrice(priceAmount, exchangeRate, markupPercent, roundingMode)
-	if priceAmount.LessThanOrEqual(decimal.Zero) && len(upProduct.SKUs) > 0 {
-		// 取转换加价后 SKU 最低价
-		for _, sku := range upProduct.SKUs {
-			skuPrice, _ := decimal.NewFromString(sku.PriceAmount)
-			localPrice := CalculateLocalPrice(skuPrice, exchangeRate, markupPercent, roundingMode)
-			if localPrice.GreaterThan(decimal.Zero) && (priceAmount.IsZero() || localPrice.LessThan(priceAmount)) {
-				priceAmount = localPrice
-				costPriceAmount = convertCurrency(skuPrice, exchangeRate)
+	priceAmount, costPriceAmount := decimal.Zero, decimal.Zero
+	if isSMMPanel {
+		priceAmount = smmReference.SellPrice
+		costPriceAmount = smmReference.ConvertedCost
+	} else {
+		var priceErr error
+		priceAmount, priceErr = decimal.NewFromString(upProduct.PriceAmount)
+		if priceErr != nil {
+			logger.Warnw("import_product_price_parse_error",
+				"upstream_product_id", upstreamProductID,
+				"price_amount", upProduct.PriceAmount,
+				"error", priceErr,
+			)
+			priceAmount = decimal.Zero
+		}
+		costPriceAmount = convertCurrency(priceAmount, exchangeRate) // 成本价 = 上游价格 × 汇率（本地币种，不含加价）
+		priceAmount = CalculateLocalPrice(priceAmount, exchangeRate, markupPercent, roundingMode)
+		if priceAmount.LessThanOrEqual(decimal.Zero) && len(upProduct.SKUs) > 0 {
+			// 取转换加价后 SKU 最低价
+			for _, sku := range upProduct.SKUs {
+				skuPrice, _ := decimal.NewFromString(sku.PriceAmount)
+				localPrice := CalculateLocalPrice(skuPrice, exchangeRate, markupPercent, roundingMode)
+				if localPrice.GreaterThan(decimal.Zero) && (priceAmount.IsZero() || localPrice.LessThan(priceAmount)) {
+					priceAmount = localPrice
+					costPriceAmount = convertCurrency(skuPrice, exchangeRate)
+				}
 			}
 		}
 	}
@@ -188,6 +217,8 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 		PurchaseType:         constants.ProductPurchaseMember,
 		FulfillmentType:      fulfillmentType,
 		ManualStockTotal:     0,
+		MinPurchaseQuantity:  smmEffectiveMin,
+		MaxPurchaseQuantity:  upProduct.MaxQuantity,
 		IsMapped:             true,
 		IsActive:             false, // 默认下架，管理员手动上架
 		SortOrder:            0,
@@ -204,23 +235,40 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 		// 创建 SKU
 		localSKUs := make([]productdomain.ProductSKU, 0, len(upProduct.SKUs))
 		for _, upSKU := range upProduct.SKUs {
-			skuPrice, skuPriceErr := decimal.NewFromString(upSKU.PriceAmount)
-			if skuPriceErr != nil {
-				logger.Warnw("import_sku_price_parse_error",
-					"upstream_sku_id", upSKU.ID,
-					"price_amount", upSKU.PriceAmount,
-					"error", skuPriceErr,
-				)
-				skuPrice = decimal.Zero
+			skuPrice, localPrice, localCost := decimal.Zero, decimal.Zero, decimal.Zero
+			if isSMMPanel {
+				rateText := strings.TrimSpace(upSKU.UpstreamRate)
+				if rateText == "" {
+					rateText = strings.TrimSpace(upSKU.PriceAmount)
+				}
+				if cfg, cfgErr := smmPriceConfigFromConnection(conn); cfgErr == nil {
+					if priced, priceErr := CalculateSMMPrice(rateText, 1000, cfg); priceErr == nil {
+						skuPrice = priced.Rate
+						localPrice = priced.SellPrice
+						localCost = priced.ConvertedCost
+					}
+				}
+			} else {
+				var skuPriceErr error
+				skuPrice, skuPriceErr = decimal.NewFromString(upSKU.PriceAmount)
+				if skuPriceErr != nil {
+					logger.Warnw("import_sku_price_parse_error",
+						"upstream_sku_id", upSKU.ID,
+						"price_amount", upSKU.PriceAmount,
+						"error", skuPriceErr,
+					)
+					skuPrice = decimal.Zero
+				}
+				localPrice = CalculateLocalPrice(skuPrice, exchangeRate, markupPercent, roundingMode)
+				localCost = convertCurrency(skuPrice, exchangeRate)
 			}
-			localPrice := CalculateLocalPrice(skuPrice, exchangeRate, markupPercent, roundingMode)
 			localSKU := productdomain.ProductSKU{
 				ProductID:       product.ID,
 				SKUCode:         upSKU.SKUCode,
 				SpecValuesJSON:  upSKU.SpecValues,
 				PriceAmount:     money.FromDecimal(localPrice.Round(2)),
-				CostPriceAmount: money.FromDecimal(convertCurrency(skuPrice, exchangeRate).Round(2)), // 成本价 = 上游价格 × 汇率（本地币种）
-				IsActive:        upSKU.IsActive,
+				CostPriceAmount:  money.FromDecimal(localCost.Round(2)), // 成本价 = 上游价格 × 汇率（本地币种）
+				IsActive:         upSKU.IsActive && !isSMMPanel,
 				SortOrder:       0,
 			}
 			if err := repos.SKUs.Create(&localSKU); err != nil {
@@ -236,7 +284,8 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 				SKUCode:        productdomain.DefaultSKUCode,
 				SpecValuesJSON: jsonmap.JSON{},
 				PriceAmount:    money.FromDecimal(priceAmount.Round(2)),
-				IsActive:       true,
+				CostPriceAmount: money.FromDecimal(costPriceAmount.Round(2)),
+				IsActive:       !isSMMPanel,
 				SortOrder:      0,
 			}
 			if err := repos.SKUs.Create(&defaultSKU); err != nil {
@@ -277,6 +326,24 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 			UpstreamFulfillmentType:   upstreamFulfillmentType,
 			IsActive:                  true,
 			LastSyncedAt:              &now,
+		}
+		if isSMMPanel {
+			mapping.PricingMode = smmPricingMode
+			mapping.UpstreamRateText = strings.TrimSpace(upProduct.UpstreamRate)
+			if mapping.UpstreamRateText == "" {
+				mapping.UpstreamRateText = strings.TrimSpace(upProduct.PriceAmount)
+			}
+			mapping.PricingUnit = smmPricingUnit(upProduct.PricingUnit)
+			mapping.UpstreamCurrency = strings.TrimSpace(conn.SourceCurrency)
+			mapping.UpstreamServiceType = strings.TrimSpace(upProduct.ServiceType)
+			mapping.UpstreamServiceCategory = strings.TrimSpace(upProduct.SourceCategory)
+			mapping.MinQuantity = upProduct.MinQuantity
+			mapping.MaxQuantity = upProduct.MaxQuantity
+			mapping.EffectiveMinQuantity = smmEffectiveMin
+			mapping.IsOrderable = smmOrderable
+			mapping.UnsupportedReason = smmReason
+			mapping.ServiceParametersJSON = upProduct.ServiceParameters
+			mapping.UpstreamFulfillmentType = constants.FulfillmentTypeAuto
 		}
 		if err := repos.Mappings.Create(mapping); err != nil {
 			return fmt.Errorf("create product mapping: %w", err)
@@ -337,6 +404,14 @@ func createSKUMappings(
 		}
 
 		upPrice, _ := decimal.NewFromString(upSKU.PriceAmount)
+		rateText := strings.TrimSpace(upSKU.UpstreamRate)
+		if rateText == "" {
+			rateText = strings.TrimSpace(upSKU.PriceAmount)
+		}
+		pricingUnit := strings.TrimSpace(upSKU.PricingUnit)
+		if pricingUnit == "" && strings.TrimSpace(upSKU.UpstreamRate) != "" {
+			pricingUnit = constants.PricingUnitPer1000
+		}
 		now := time.Now()
 		skuMapping := &mappingdomain.SKUMapping{
 			ProductMappingID:      mappingID,
@@ -344,6 +419,8 @@ func createSKUMappings(
 			UpstreamSKUID:         upSKU.ID,
 			UpstreamSKUExternalID: strings.TrimSpace(upSKU.ExternalID),
 			UpstreamPrice:         money.FromDecimal(upPrice.Round(2)),
+			UpstreamRateText:      rateText,
+			PricingUnit:           pricingUnit,
 			UpstreamIsActive:      upSKU.IsActive,
 			UpstreamStock:         upSKU.StockQuantity,
 			StockSyncedAt:         &now,

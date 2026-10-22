@@ -437,6 +437,17 @@ const (
 	// ProdSeller 的 API Key 只允许通过 Connection.SecretRef 指向的环境变量读取。
 	ConnectionProtocolProdSeller  = "prodseller"
 	ConnectionSecretRefProdSeller = "PRODSELLER_API_KEY"
+	// ConnectionProtocolSMMPanel 使用 SMM Panel v2 API 的只读服务目录。
+	// SMM Panel 的 API Key 只允许通过 Connection.SecretRef 指向的环境变量读取。
+	ConnectionProtocolSMMPanel  = "smmpanel"
+	ConnectionSecretRefSMMPanel = "SMMPANEL_API_KEY"
+)
+
+// 上游服务价格单位。
+const (
+	PricingUnitPer1000 = "per_1000"
+	PricingUnitPerUnit = "per_unit"
+	PricingUnitPerOrder = "per_order"
 )
 
 // API 凭证状态常量

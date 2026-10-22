@@ -87,22 +87,31 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 		protocol = constants.ConnectionProtocolDujiaoNext
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
-	if strings.TrimSpace(input.Name) == "" || (baseURL == "" && protocol != constants.ConnectionProtocolProdSeller) {
+	if strings.TrimSpace(input.Name) == "" || (baseURL == "" && !isEnvironmentBackedProtocol(protocol)) {
 		return nil, siteconnectioncontract.ErrInvalid
 	}
 
 	secretRef := strings.TrimSpace(input.SecretRef)
 	var encryptedSecret string
-	if protocol == constants.ConnectionProtocolProdSeller {
-		// ProdSeller 的真实 API Key 不能经过 ApiKey/ApiSecret 入库路径。
+	if isEnvironmentBackedProtocol(protocol) {
+		// 环境变量密钥协议的真实 API Key 不能经过 ApiKey/ApiSecret 入库路径。
 		if strings.TrimSpace(input.ApiKey) != "" || strings.TrimSpace(input.ApiSecret) != "" {
 			return nil, siteconnectioncontract.ErrInvalid
 		}
-		if secretRef == "" {
+		if secretRef == "" && protocol == constants.ConnectionProtocolProdSeller {
 			secretRef = constants.ConnectionSecretRefProdSeller
 		}
-		if baseURL == "" {
+		if secretRef == "" && protocol == constants.ConnectionProtocolSMMPanel {
+			secretRef = constants.ConnectionSecretRefSMMPanel
+		}
+		if protocol == constants.ConnectionProtocolSMMPanel && secretRef != constants.ConnectionSecretRefSMMPanel {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
+		if baseURL == "" && protocol == constants.ConnectionProtocolProdSeller {
 			baseURL = "https://prodseller.com/v1"
+		}
+		if baseURL == "" && protocol == constants.ConnectionProtocolSMMPanel {
+			baseURL = "https://116212.vip/api/v2"
 		}
 	} else {
 		if strings.TrimSpace(input.ApiKey) == "" || strings.TrimSpace(input.ApiSecret) == "" {
@@ -142,6 +151,23 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 		autoSyncPrice = true
 	}
 
+	sourceCurrency, sourceToUSDT, exchangeRateBufferBPS, markupMultiplier, minimumOrderAmountUSDT, defaultPricingUnit, err := normalizeSMMPricing(
+		protocol,
+		input.SourceCurrency,
+		input.SourceToUSDT,
+		input.ExchangeRateBufferBPS,
+		input.MarkupMultiplier,
+		input.MinimumOrderAmountUSDT,
+		input.DefaultPricingUnit,
+	)
+	if err != nil {
+		return nil, siteconnectioncontract.ErrInvalid
+	}
+	if protocol == constants.ConnectionProtocolSMMPanel {
+		roundingMode = "ceil_cent"
+		autoSyncPrice = true
+	}
+
 	conn := &siteconnectiondomain.Connection{
 		Name:               strings.TrimSpace(input.Name),
 		BaseURL:            baseURL,
@@ -157,6 +183,12 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 		PriceMarkupPercent: markupPercent,
 		PriceRoundingMode:  roundingMode,
 		AutoSyncPrice:      autoSyncPrice,
+		SourceCurrency:         sourceCurrency,
+		SourceToUSDT:           sourceToUSDT,
+		ExchangeRateBufferBPS:  exchangeRateBufferBPS,
+		MarkupMultiplier:       markupMultiplier,
+		MinimumOrderAmountUSDT: minimumOrderAmountUSDT,
+		DefaultPricingUnit:     defaultPricingUnit,
 	}
 
 	if err := s.connRepo.Create(conn); err != nil {
@@ -184,7 +216,7 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	if strings.TrimSpace(input.Protocol) != "" {
 		targetProtocol = strings.TrimSpace(input.Protocol)
 	}
-	if targetProtocol == constants.ConnectionProtocolProdSeller &&
+	if isEnvironmentBackedProtocol(targetProtocol) &&
 		(strings.TrimSpace(input.ApiKey) != "" || strings.TrimSpace(input.ApiSecret) != "") {
 		return nil, siteconnectioncontract.ErrInvalid
 	}
@@ -207,16 +239,53 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	}
 	if strings.TrimSpace(input.Protocol) != "" {
 		conn.Protocol = targetProtocol
-		if conn.Protocol == constants.ConnectionProtocolProdSeller {
+		if isEnvironmentBackedProtocol(conn.Protocol) {
 			conn.ApiKey = ""
 			conn.ApiSecret = ""
 			if conn.SecretRef == "" {
-				conn.SecretRef = constants.ConnectionSecretRefProdSeller
+				if conn.Protocol == constants.ConnectionProtocolSMMPanel {
+					conn.SecretRef = constants.ConnectionSecretRefSMMPanel
+				} else {
+					conn.SecretRef = constants.ConnectionSecretRefProdSeller
+				}
+			}
+			if conn.BaseURL == "" {
+				if conn.Protocol == constants.ConnectionProtocolSMMPanel {
+					conn.BaseURL = "https://116212.vip/api/v2"
+				} else {
+					conn.BaseURL = "https://prodseller.com/v1"
+				}
 			}
 		}
 	}
 	if strings.TrimSpace(input.SecretRef) != "" {
+		if targetProtocol == constants.ConnectionProtocolSMMPanel && strings.TrimSpace(input.SecretRef) != constants.ConnectionSecretRefSMMPanel {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
 		conn.SecretRef = strings.TrimSpace(input.SecretRef)
+	}
+	if isEnvironmentBackedProtocol(targetProtocol) {
+		// Environment-backed protocols never retain legacy credential fields,
+		// even when the protocol itself was created before this rule existed.
+		conn.ApiKey = ""
+		conn.ApiSecret = ""
+		if strings.TrimSpace(conn.SecretRef) == "" {
+			if targetProtocol == constants.ConnectionProtocolSMMPanel {
+				conn.SecretRef = constants.ConnectionSecretRefSMMPanel
+			} else {
+				conn.SecretRef = constants.ConnectionSecretRefProdSeller
+			}
+		}
+		if targetProtocol == constants.ConnectionProtocolSMMPanel {
+			conn.SecretRef = constants.ConnectionSecretRefSMMPanel
+		}
+		if strings.TrimSpace(conn.BaseURL) == "" {
+			if targetProtocol == constants.ConnectionProtocolSMMPanel {
+				conn.BaseURL = "https://116212.vip/api/v2"
+			} else {
+				conn.BaseURL = "https://prodseller.com/v1"
+			}
+		}
 	}
 	if input.CallbackURL != "" {
 		conn.CallbackURL = strings.TrimSpace(input.CallbackURL)
@@ -243,6 +312,41 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	if input.AutoSyncPrice != nil {
 		conn.AutoSyncPrice = *input.AutoSyncPrice
 	}
+	if input.SourceCurrency != nil {
+		conn.SourceCurrency = strings.ToUpper(strings.TrimSpace(*input.SourceCurrency))
+	}
+	if input.SourceToUSDT != nil {
+		conn.SourceToUSDT = strings.TrimSpace(*input.SourceToUSDT)
+	}
+	if input.ExchangeRateBufferBPS != nil {
+		conn.ExchangeRateBufferBPS = *input.ExchangeRateBufferBPS
+	}
+	if input.MarkupMultiplier != nil {
+		conn.MarkupMultiplier = strings.TrimSpace(*input.MarkupMultiplier)
+	}
+	if input.MinimumOrderAmountUSDT != nil {
+		conn.MinimumOrderAmountUSDT = strings.TrimSpace(*input.MinimumOrderAmountUSDT)
+	}
+	if input.DefaultPricingUnit != nil {
+		conn.DefaultPricingUnit = strings.TrimSpace(*input.DefaultPricingUnit)
+	}
+	if targetProtocol == constants.ConnectionProtocolSMMPanel {
+		var normalizeErr error
+		conn.SourceCurrency, conn.SourceToUSDT, conn.ExchangeRateBufferBPS, conn.MarkupMultiplier, conn.MinimumOrderAmountUSDT, conn.DefaultPricingUnit, normalizeErr = normalizeSMMPricing(
+			targetProtocol,
+			conn.SourceCurrency,
+			conn.SourceToUSDT,
+			conn.ExchangeRateBufferBPS,
+			conn.MarkupMultiplier,
+			conn.MinimumOrderAmountUSDT,
+			conn.DefaultPricingUnit,
+		)
+		if normalizeErr != nil {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
+		conn.AutoSyncPrice = true
+		conn.PriceRoundingMode = "ceil_cent"
+	}
 
 	if err := s.connRepo.Update(conn); err != nil {
 		return nil, err
@@ -254,7 +358,7 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	priceConfigChanged := !conn.ExchangeRate.Equal(prevExchangeRate) ||
 		!conn.PriceMarkupPercent.Equal(prevMarkupPercent) ||
 		conn.PriceRoundingMode != prevRoundingMode
-	if priceConfigChanged && s.markupReapplier != nil {
+	if priceConfigChanged && targetProtocol != constants.ConnectionProtocolSMMPanel && s.markupReapplier != nil {
 		if _, err := s.markupReapplier.ReapplyMarkup(conn.ID); err != nil {
 			logger.Warnw("reapply_markup_after_connection_update_failed",
 				"connection_id", conn.ID, "error", err)
@@ -355,12 +459,13 @@ func (s *Service) newAdapter(conn *siteconnectiondomain.Connection) (upstream.Ad
 		return nil, siteconnectioncontract.ErrNotFound
 	}
 	adapterConn := &siteconnectiondomain.Connection{
-		BaseURL:   conn.BaseURL,
-		ApiKey:    conn.ApiKey,
-		Protocol:  conn.Protocol,
-		SecretRef: conn.SecretRef,
+		BaseURL:        conn.BaseURL,
+		ApiKey:         conn.ApiKey,
+		Protocol:       conn.Protocol,
+		SecretRef:      conn.SecretRef,
+		SourceCurrency: conn.SourceCurrency,
 	}
-	if conn.Protocol != constants.ConnectionProtocolProdSeller {
+	if !isEnvironmentBackedProtocol(conn.Protocol) {
 		decrypted, err := s.decryptSecret(conn)
 		if err != nil {
 			return nil, err
@@ -385,4 +490,54 @@ func (s *Service) normalizeExchangeRate(rate float64) decimal.Decimal {
 		return decimal.NewFromInt(1)
 	}
 	return decimal.NewFromFloat(rate)
+}
+
+func isEnvironmentBackedProtocol(protocol string) bool {
+	return protocol == constants.ConnectionProtocolProdSeller || protocol == constants.ConnectionProtocolSMMPanel
+}
+
+// normalizeSMMPricing 只对 SMM 连接校验专用定价字段。
+// source_currency/source_to_usdt_rate 可以暂时为空，此时连接可保存但商品保持关闭；
+// 一旦提供汇率，必须是严格大于 0 的定点小数。
+func normalizeSMMPricing(protocol, sourceCurrency, sourceToUSDT string, bufferBPS int, markupMultiplier, minimumOrderAmountUSDT, pricingUnit string) (string, string, int, string, string, string, error) {
+	if protocol != constants.ConnectionProtocolSMMPanel {
+		return "", "", 0, "2", "1", constants.PricingUnitPer1000, nil
+	}
+	sourceCurrency = strings.ToUpper(strings.TrimSpace(sourceCurrency))
+	sourceToUSDT = strings.TrimSpace(sourceToUSDT)
+	if sourceToUSDT != "" {
+		rate, err := decimal.NewFromString(sourceToUSDT)
+		if err != nil || !rate.GreaterThan(decimal.Zero) {
+			return "", "", 0, "", "", "", siteconnectioncontract.ErrInvalid
+		}
+	}
+	if bufferBPS < 0 {
+		return "", "", 0, "", "", "", siteconnectioncontract.ErrInvalid
+	}
+	markupMultiplier = strings.TrimSpace(markupMultiplier)
+	if markupMultiplier == "" {
+		markupMultiplier = "2"
+	}
+	markup, err := decimal.NewFromString(markupMultiplier)
+	if err != nil || markup.LessThan(decimal.NewFromInt(1)) {
+		return "", "", 0, "", "", "", siteconnectioncontract.ErrInvalid
+	}
+	minimumOrderAmountUSDT = strings.TrimSpace(minimumOrderAmountUSDT)
+	if minimumOrderAmountUSDT == "" {
+		minimumOrderAmountUSDT = "1"
+	}
+	minimumAmount, err := decimal.NewFromString(minimumOrderAmountUSDT)
+	if err != nil || !minimumAmount.GreaterThan(decimal.Zero) {
+		return "", "", 0, "", "", "", siteconnectioncontract.ErrInvalid
+	}
+	pricingUnit = strings.TrimSpace(pricingUnit)
+	if pricingUnit == "" {
+		pricingUnit = constants.PricingUnitPer1000
+	}
+	switch pricingUnit {
+	case constants.PricingUnitPer1000, constants.PricingUnitPerUnit, constants.PricingUnitPerOrder:
+	default:
+		return "", "", 0, "", "", "", siteconnectioncontract.ErrInvalid
+	}
+	return sourceCurrency, sourceToUSDT, bufferBPS, markup.String(), minimumAmount.String(), pricingUnit, nil
 }

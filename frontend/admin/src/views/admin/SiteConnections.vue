@@ -43,6 +43,12 @@ const form = reactive({
   price_markup_percent: 0,
   price_rounding_mode: 'none',
   auto_sync_price: 'false',
+  source_currency: '',
+  source_to_usdt_rate: '',
+  exchange_rate_buffer_bps: 0,
+  markup_multiplier: '2',
+  minimum_order_amount_usdt: '1',
+  default_pricing_unit: 'per_1000',
 })
 const reapplyingId = ref<number | null>(null)
 
@@ -53,6 +59,8 @@ const siteConnectionSchema = {
 }
 const { errors, validate, clearErrors } = useFormValidation(siteConnectionSchema)
 const isProdSeller = computed(() => form.protocol === 'prodseller')
+const isSMMPanel = computed(() => form.protocol === 'smmpanel')
+const isEnvironmentBacked = computed(() => isProdSeller.value || isSMMPanel.value)
 
 const fetchConnections = async (page = 1) => {
   loading.value = true
@@ -104,6 +112,12 @@ const resetForm = () => {
     price_markup_percent: 0,
     price_rounding_mode: 'none',
     auto_sync_price: 'false',
+    source_currency: '',
+    source_to_usdt_rate: '',
+    exchange_rate_buffer_bps: 0,
+    markup_multiplier: '2',
+    minimum_order_amount_usdt: '1',
+    default_pricing_unit: 'per_1000',
   })
 }
 
@@ -124,7 +138,7 @@ const openEditModal = (conn: AdminSiteConnection) => {
     base_url: conn.base_url || '',
     api_key: conn.api_key || '',
     api_secret: conn.api_secret || '',
-    secret_ref: conn.secret_ref || 'PRODSELLER_API_KEY',
+    secret_ref: protocol === 'smmpanel' ? 'SMMPANEL_API_KEY' : (conn.secret_ref || 'PRODSELLER_API_KEY'),
     protocol,
     callback_url: conn.callback_url || '',
     retry_max: conn.retry_max ?? 3,
@@ -146,6 +160,12 @@ const openEditModal = (conn: AdminSiteConnection) => {
       ? 'ceil_cent'
       : (conn.price_rounding_mode || 'none'),
     auto_sync_price: protocol === 'prodseller' ? 'true' : (conn.auto_sync_price ? 'true' : 'false'),
+    source_currency: conn.source_currency || '',
+    source_to_usdt_rate: conn.source_to_usdt_rate || '',
+    exchange_rate_buffer_bps: conn.exchange_rate_buffer_bps ?? 0,
+    markup_multiplier: conn.markup_multiplier || '2',
+    minimum_order_amount_usdt: conn.minimum_order_amount_usdt || '1',
+    default_pricing_unit: conn.default_pricing_unit || 'per_1000',
   })
   showModal.value = true
 }
@@ -165,6 +185,17 @@ const handleProtocolChange = (protocol: unknown) => {
     form.price_rounding_mode = 'ceil_cent'
     form.auto_sync_price = 'true'
   }
+  if (protocol === 'smmpanel') {
+    if (!form.base_url) form.base_url = 'https://116212.vip/api/v2'
+    form.api_key = ''
+    form.api_secret = ''
+    form.secret_ref = 'SMMPANEL_API_KEY'
+    form.price_rounding_mode = 'ceil_cent'
+    form.auto_sync_price = 'true'
+    if (!form.markup_multiplier) form.markup_multiplier = '2'
+    if (!form.minimum_order_amount_usdt) form.minimum_order_amount_usdt = '1'
+    if (!form.default_pricing_unit) form.default_pricing_unit = 'per_1000'
+  }
 }
 
 const buildPayload = () => {
@@ -174,10 +205,10 @@ const buildPayload = () => {
     .filter((n: number) => !Number.isNaN(n) && n > 0)
   return {
     name: form.name,
-    base_url: isProdSeller.value ? (form.base_url || 'https://prodseller.com/v1') : form.base_url,
-    api_key: isProdSeller.value ? '' : form.api_key,
-    api_secret: isProdSeller.value ? '' : form.api_secret,
-    secret_ref: isProdSeller.value ? form.secret_ref : '',
+    base_url: isProdSeller.value ? (form.base_url || 'https://prodseller.com/v1') : (isSMMPanel.value ? (form.base_url || 'https://116212.vip/api/v2') : form.base_url),
+    api_key: isEnvironmentBacked.value ? '' : form.api_key,
+    api_secret: isEnvironmentBacked.value ? '' : form.api_secret,
+    secret_ref: isEnvironmentBacked.value ? form.secret_ref : '',
     protocol: form.protocol,
     callback_url: form.callback_url,
     retry_max: Number(form.retry_max) || 3,
@@ -185,12 +216,20 @@ const buildPayload = () => {
     exchange_rate: Number(form.exchange_rate) || 1,
     price_markup_percent: isProdSeller.value ? (Number(form.price_markup_percent) || 400) : (Number(form.price_markup_percent) || 0),
     price_rounding_mode: isProdSeller.value && form.price_rounding_mode === 'none' ? 'ceil_cent' : form.price_rounding_mode,
-    auto_sync_price: isProdSeller.value || form.auto_sync_price === 'true',
+    auto_sync_price: isEnvironmentBacked.value || form.auto_sync_price === 'true',
+    source_currency: isSMMPanel.value ? form.source_currency : '',
+    source_to_usdt_rate: isSMMPanel.value ? form.source_to_usdt_rate : '',
+    exchange_rate_buffer_bps: isSMMPanel.value ? Number(form.exchange_rate_buffer_bps) || 0 : 0,
+    markup_multiplier: isSMMPanel.value ? form.markup_multiplier : '',
+    minimum_order_amount_usdt: isSMMPanel.value ? form.minimum_order_amount_usdt : '',
+    default_pricing_unit: isSMMPanel.value ? form.default_pricing_unit : '',
   }
 }
 
 const handleSubmit = async () => {
-  const validationForm = isProdSeller.value ? { ...form, api_key: 'env-reference', base_url: form.base_url || 'https://prodseller.com/v1' } : { ...form }
+  const validationForm = isEnvironmentBacked.value
+    ? { ...form, api_key: 'env-reference', base_url: form.base_url || (isSMMPanel.value ? 'https://116212.vip/api/v2' : 'https://prodseller.com/v1') }
+    : { ...form }
   if (!validate(validationForm as Record<string, unknown>)) return
   try {
     const payload = buildPayload()
@@ -400,17 +439,17 @@ onMounted(() => {
               <Input v-model="form.name" required :placeholder="t('siteConnections.form.namePlaceholder')" />
               <p v-if="errors.name" class="text-xs text-destructive mt-1">{{ errors.name }}</p>
             </div>
-            <div v-if="!isProdSeller" class="md:col-span-2">
+            <div v-if="!isEnvironmentBacked" class="md:col-span-2">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.baseUrl') }}</label>
               <Input v-model="form.base_url" required :placeholder="t('siteConnections.form.baseUrlPlaceholder')" />
               <p v-if="errors.base_url" class="text-xs text-destructive mt-1">{{ errors.base_url }}</p>
             </div>
-            <div v-if="!isProdSeller">
+            <div v-if="!isEnvironmentBacked">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.apiKey') }}</label>
               <Input v-model="form.api_key" :placeholder="t('siteConnections.form.apiKeyPlaceholder')" />
               <p v-if="errors.api_key" class="text-xs text-destructive mt-1">{{ errors.api_key }}</p>
             </div>
-            <div v-if="!isProdSeller">
+            <div v-if="!isEnvironmentBacked">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.apiSecret') }}</label>
               <Input v-model="form.api_secret" type="password" :placeholder="t('siteConnections.form.apiSecretPlaceholder')" />
             </div>
@@ -423,18 +462,19 @@ onMounted(() => {
                 <SelectContent>
                   <SelectItem value="dujiao-next">dujiao-next</SelectItem>
                   <SelectItem value="prodseller">{{ t('siteConnections.form.prodSellerProtocol') }}</SelectItem>
+                  <SelectItem value="smmpanel">{{ t('siteConnections.form.smmPanelProtocol') }}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div v-if="isProdSeller">
+            <div v-if="isEnvironmentBacked">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.secretRef') }}</label>
-              <Input v-model="form.secret_ref" :placeholder="t('siteConnections.form.secretRefPlaceholder')" autocomplete="off" />
+              <Input v-model="form.secret_ref" :placeholder="isSMMPanel ? 'SMMPANEL_API_KEY' : t('siteConnections.form.secretRefPlaceholder')" :readonly="isSMMPanel" autocomplete="off" />
               <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.secretRefHint') }}</p>
             </div>
-            <div v-if="isProdSeller" class="md:col-span-2">
+            <div v-if="isEnvironmentBacked" class="md:col-span-2">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.baseUrl') }}</label>
-              <Input v-model="form.base_url" :placeholder="t('siteConnections.form.prodSellerBaseUrlPlaceholder')" />
-              <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.prodSellerBaseUrlHint') }}</p>
+              <Input v-model="form.base_url" :placeholder="isSMMPanel ? 'https://116212.vip/api/v2' : t('siteConnections.form.prodSellerBaseUrlPlaceholder')" />
+              <p class="mt-1 text-xs text-muted-foreground">{{ isSMMPanel ? t('siteConnections.form.smmPanelBaseUrlHint') : t('siteConnections.form.prodSellerBaseUrlHint') }}</p>
             </div>
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.callbackUrl') }}</label>
@@ -450,7 +490,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="border-t border-border pt-4">
+          <div v-if="!isSMMPanel" class="border-t border-border pt-4">
             <h3 class="mb-3 text-sm font-medium text-foreground">{{ t('siteConnections.form.markupSection') }}</h3>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
@@ -494,6 +534,48 @@ onMounted(() => {
                 <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.autoSyncPriceHint') }}</p>
               </div>
             </div>
+          </div>
+
+          <div v-if="isSMMPanel" class="border-t border-border pt-4">
+            <h3 class="mb-3 text-sm font-medium text-foreground">{{ t('siteConnections.form.smmPricingSection') }}</h3>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.sourceCurrency') }}</label>
+                <Input v-model="form.source_currency" placeholder="USD" />
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.sourceCurrencyHint') }}</p>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.sourceToUsdtRate') }}</label>
+                <Input v-model="form.source_to_usdt_rate" inputmode="decimal" placeholder="1.000000" />
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.sourceToUsdtRateHint') }}</p>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.exchangeRateBufferBps') }}</label>
+                <Input v-model.number="form.exchange_rate_buffer_bps" type="number" min="0" step="1" placeholder="0" />
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.markupMultiplier') }}</label>
+                <Input v-model="form.markup_multiplier" inputmode="decimal" placeholder="2" />
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.minimumOrderAmountUSDT') }}</label>
+                <Input v-model="form.minimum_order_amount_usdt" inputmode="decimal" placeholder="1" />
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.minimumOrderAmountHint') }}</p>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.defaultPricingUnit') }}</label>
+                <Select v-model="form.default_pricing_unit">
+                  <SelectTrigger class="h-9 w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="per_1000">per_1000</SelectItem>
+                    <SelectItem value="per_unit">per_unit</SelectItem>
+                    <SelectItem value="per_order">per_order</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.pricingUnitHint') }}</p>
+              </div>
+            </div>
+            <p class="mt-3 text-xs text-amber-700">{{ t('siteConnections.form.smmFailClosedHint') }}</p>
           </div>
 
           <div class="flex flex-col-reverse gap-3 border-t border-border pt-6 sm:flex-row sm:justify-end">

@@ -60,6 +60,9 @@ func (s *Service) SyncProduct(mappingID uint) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if err := validateSMMPanelBalance(ctx, conn, adapter); err != nil {
+		return err
+	}
 
 	upProduct, err := adapter.GetProduct(ctx, mapping.UpstreamProductID)
 	if err != nil {
@@ -81,6 +84,9 @@ func (s *Service) SyncProduct(mappingID uint) error {
 	// 上游 200 但 is_active=false → 视为下架
 	if !upProduct.IsActive {
 		return s.markUpstreamUnavailable(mapping, mappingdomain.UpstreamStatusInactive, now)
+	}
+	if conn.Protocol == constants.ConnectionProtocolSMMPanel {
+		return s.syncSMMProductFromData(mapping, conn, upProduct, &now)
 	}
 
 	// ── 1. 同步本地商品字段（表单配置、上下架状态） ──
@@ -490,7 +496,12 @@ func (s *Service) SyncExternalProduct(mappingID uint) error {
 	if err != nil {
 		return err
 	}
-	s.translateProdSellerProduct(ctx, conn, localProduct, upProduct)
+	// Translation has its own deadline. The upstream product request uses a
+	// short read timeout, while the model may legitimately need longer to
+	// translate a long product description.
+	translationCtx, translationCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer translationCancel()
+	s.translateProdSellerProduct(translationCtx, conn, localProduct, upProduct)
 	if localProduct != nil {
 		if _, categoryErr := s.reclassifyAutoCategoryForProduct(localProduct, upProduct.Title, upProduct.Description, upProduct.Content, upProduct.Tags); categoryErr != nil {
 			logger.Warnw("sync_external_auto_categorize_product_failed", "local_product_id", localProduct.ID, "error", categoryErr)
@@ -608,6 +619,14 @@ func (s *Service) SyncConnectionStock(connectionID uint, connMappings []mappingd
 	adapter, err := s.connections.GetAdapter(conn)
 	if err != nil {
 		return fmt.Errorf("get adapter for connection %d: %w", connectionID, err)
+	}
+	if conn.Protocol == constants.ConnectionProtocolSMMPanel {
+		balanceCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := validateSMMPanelBalance(balanceCtx, conn, adapter)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("validate SMM panel balance for connection %d: %w", connectionID, err)
+		}
 	}
 
 	// 读取上次同步时间用于增量同步
@@ -772,6 +791,16 @@ func (s *Service) SyncConnectionStock(connectionID uint, connMappings []mappingd
 			_ = s.markUpstreamUnavailable(mapping, mappingdomain.UpstreamStatusInactive, now)
 			continue
 		}
+		if conn.Protocol == constants.ConnectionProtocolSMMPanel {
+			if syncErr := s.syncSMMProductFromData(mapping, conn, &upProduct, &now); syncErr != nil {
+				logger.Warnw("sync_smm_product_failed",
+					"mapping_id", mapping.ID,
+					"connection_id", connectionID,
+					"error", syncErr,
+				)
+			}
+			continue
+		}
 		s.syncProductFromData(mapping, conn, &upProduct, &now)
 	}
 
@@ -790,6 +819,199 @@ func (s *Service) SyncConnectionStock(connectionID uint, connMappings []mappingd
 		"fetch_complete", fetchComplete,
 	)
 	return nil
+}
+
+// validateSMMPanelBalance performs the read-only balance probe before a SMM
+// catalog read. The adapter compares the observed currency with the configured
+// source currency; an unset source currency is intentionally allowed here so
+// services can still be imported as closed until the configuration is complete.
+func validateSMMPanelBalance(ctx context.Context, conn *siteconnectiondomain.Connection, adapter upstream.Adapter) error {
+	if conn == nil || conn.Protocol != constants.ConnectionProtocolSMMPanel {
+		return nil
+	}
+	_, err := adapter.Ping(ctx)
+	return err
+}
+
+// syncSMMProductFromData persists the read-only service metadata and keeps the
+// local product unpublished. The upstream request has already completed before
+// this function is called, so no external HTTP occurs during local writes.
+func (s *Service) syncSMMProductFromData(mapping *mappingdomain.Mapping, conn *siteconnectiondomain.Connection, upProduct *upstream.UpstreamProduct, now *time.Time) error {
+	if s == nil || mapping == nil || conn == nil || upProduct == nil || now == nil {
+		return fmt.Errorf("invalid smm sync input")
+	}
+
+	rateText := strings.TrimSpace(upProduct.UpstreamRate)
+	if rateText == "" {
+		rateText = strings.TrimSpace(upProduct.PriceAmount)
+	}
+	referencePrice, effectiveMin, orderable, reason := smmCatalogPricing(
+		rateText,
+		upProduct.MinQuantity,
+		upProduct.MaxQuantity,
+		upProduct.Orderable,
+		upProduct.UnsupportedReason,
+		conn,
+	)
+
+	localProduct, err := s.products.GetByID(strconv.FormatUint(uint64(mapping.LocalProductID), 10))
+	if err != nil {
+		return fmt.Errorf("get local smm product: %w", err)
+	}
+	if localProduct != nil {
+		localProduct.TitleJSON = upProduct.Title
+		localProduct.DescriptionJSON = upProduct.Description
+		if len(upProduct.Content) > 0 {
+			localProduct.ContentJSON = upProduct.Content
+		}
+		if upProduct.ManualFormSchema != nil {
+			localProduct.ManualFormSchemaJSON = upProduct.ManualFormSchema
+		}
+		// Step 1 is catalog-only: every SMM product stays unpublished even when
+		// the upstream service is Default and the pricing config is valid.
+		localProduct.IsActive = false
+		localProduct.PriceAmount = money.FromDecimal(referencePrice.SellPrice)
+		localProduct.CostPriceAmount = money.FromDecimal(referencePrice.ConvertedCost)
+		localProduct.MinPurchaseQuantity = effectiveMin
+		localProduct.MaxPurchaseQuantity = upProduct.MaxQuantity
+		if err := s.products.Update(localProduct); err != nil {
+			return fmt.Errorf("update local smm product: %w", err)
+		}
+	}
+
+	skuMappings, err := s.skuMappings.ListByProductMapping(mapping.ID)
+	if err != nil {
+		return err
+	}
+	upstreamSKUMap := make(map[uint]upstream.UpstreamSKU, len(upProduct.SKUs))
+	for _, upSKU := range upProduct.SKUs {
+		upstreamSKUMap[upSKU.ID] = upSKU
+	}
+	existingByUpstreamID := make(map[uint]struct{}, len(skuMappings))
+	for i := range skuMappings {
+		existingByUpstreamID[skuMappings[i].UpstreamSKUID] = struct{}{}
+		upSKU, ok := upstreamSKUMap[skuMappings[i].UpstreamSKUID]
+		if !ok {
+			skuMappings[i].UpstreamIsActive = false
+			skuMappings[i].UpstreamStock = 0
+			skuMappings[i].StockSyncedAt = now
+			if err := s.skuMappings.Update(&skuMappings[i]); err != nil {
+				return err
+			}
+			if localSKU, skuErr := s.skus.GetByID(skuMappings[i].LocalSKUID); skuErr == nil && localSKU != nil {
+				localSKU.IsActive = false
+				if err := s.skus.Update(localSKU); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		smmRateText := strings.TrimSpace(upSKU.UpstreamRate)
+		if smmRateText == "" {
+			smmRateText = strings.TrimSpace(upSKU.PriceAmount)
+		}
+		skuPrice, skuCost := decimal.Zero, decimal.Zero
+		if cfg, cfgErr := smmPriceConfigFromConnection(conn); cfgErr == nil {
+			if priced, priceErr := CalculateSMMPrice(smmRateText, 1000, cfg); priceErr == nil {
+				skuPrice = priced.SellPrice
+				skuCost = priced.ConvertedCost
+			}
+		}
+		skuMappings[i].UpstreamPrice = decimalToMoneyAmount(smmRateText)
+		skuMappings[i].UpstreamRateText = smmRateText
+		skuMappings[i].PricingUnit = smmPricingUnit(upSKU.PricingUnit)
+		skuMappings[i].UpstreamIsActive = upSKU.IsActive
+		skuMappings[i].UpstreamStock = upSKU.StockQuantity
+		skuMappings[i].StockSyncedAt = now
+		if err := s.skuMappings.Update(&skuMappings[i]); err != nil {
+			return err
+		}
+		if localSKU, skuErr := s.skus.GetByID(skuMappings[i].LocalSKUID); skuErr == nil && localSKU != nil {
+			localSKU.SpecValuesJSON = upSKU.SpecValues
+			localSKU.PriceAmount = money.FromDecimal(skuPrice)
+			localSKU.CostPriceAmount = money.FromDecimal(skuCost)
+			localSKU.IsActive = false
+			if err := s.skus.Update(localSKU); err != nil {
+				return err
+			}
+		}
+	}
+
+	for _, upSKU := range upProduct.SKUs {
+		if _, exists := existingByUpstreamID[upSKU.ID]; exists {
+			continue
+		}
+		smmRateText := strings.TrimSpace(upSKU.UpstreamRate)
+		if smmRateText == "" {
+			smmRateText = strings.TrimSpace(upSKU.PriceAmount)
+		}
+		skuPrice, skuCost := decimal.Zero, decimal.Zero
+		if cfg, cfgErr := smmPriceConfigFromConnection(conn); cfgErr == nil {
+			if priced, priceErr := CalculateSMMPrice(smmRateText, 1000, cfg); priceErr == nil {
+				skuPrice = priced.SellPrice
+				skuCost = priced.ConvertedCost
+			}
+		}
+		localSKU := productdomain.ProductSKU{
+			ProductID:       mapping.LocalProductID,
+			SKUCode:         upSKU.SKUCode,
+			SpecValuesJSON:  upSKU.SpecValues,
+			PriceAmount:     money.FromDecimal(skuPrice),
+			CostPriceAmount: money.FromDecimal(skuCost),
+			IsActive:        false,
+			SortOrder:       0,
+		}
+		if err := s.skus.Create(&localSKU); err != nil {
+			return err
+		}
+		newMapping := &mappingdomain.SKUMapping{
+			ProductMappingID: mapping.ID,
+			LocalSKUID:       localSKU.ID,
+			UpstreamSKUID:    upSKU.ID,
+			UpstreamPrice:    decimalToMoneyAmount(smmRateText),
+			UpstreamRateText: smmRateText,
+			PricingUnit:      smmPricingUnit(upSKU.PricingUnit),
+			UpstreamStock:    upSKU.StockQuantity,
+			UpstreamIsActive: upSKU.IsActive,
+			StockSyncedAt:    now,
+		}
+		if err := s.skuMappings.Create(newMapping); err != nil {
+			return err
+		}
+	}
+
+	mapping.PricingMode = smmPricingMode
+	mapping.UpstreamRateText = rateText
+	mapping.PricingUnit = smmPricingUnit(upProduct.PricingUnit)
+	mapping.UpstreamCurrency = strings.TrimSpace(conn.SourceCurrency)
+	mapping.UpstreamServiceType = strings.TrimSpace(upProduct.ServiceType)
+	mapping.UpstreamServiceCategory = strings.TrimSpace(upProduct.SourceCategory)
+	mapping.MinQuantity = upProduct.MinQuantity
+	mapping.MaxQuantity = upProduct.MaxQuantity
+	mapping.EffectiveMinQuantity = effectiveMin
+	mapping.IsOrderable = orderable
+	mapping.UnsupportedReason = reason
+	mapping.ServiceParametersJSON = upProduct.ServiceParameters
+	mapping.UpstreamFulfillmentType = constants.FulfillmentTypeAuto
+	mapping.UpstreamStatus = mappingdomain.UpstreamStatusActive
+	mapping.IsActive = true
+	mapping.LastSyncedAt = now
+	return s.mappings.Update(mapping)
+}
+
+func smmPricingUnit(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return constants.PricingUnitPer1000
+	}
+	return strings.TrimSpace(raw)
+}
+
+func decimalToMoneyAmount(value string) money.Amount {
+	parsed, err := decimal.NewFromString(strings.TrimSpace(value))
+	if err != nil || parsed.IsNegative() {
+		parsed = decimal.Zero
+	}
+	return money.FromDecimal(parsed)
 }
 
 // syncProductFromData 使用已拉取的上游数据同步单个映射（不再发 HTTP 请求）
