@@ -1,0 +1,18 @@
+name: gofmt-report
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Print migration test gofmt diff
+        run: gofmt -d internal/bootstrap/database/migrations/sku_migration_test.go
