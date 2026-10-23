@@ -155,6 +155,9 @@ func TestValidateUpayCallbackFactsRequiresExactCryptoAmount(t *testing.T) {
 	if err := validateCallbackPaymentFacts(payment, payment.GatewayOrderNo, constants.PaymentStatusSuccess, upayCallbackInput(constants.PaymentStatusSuccess, "8.5064", "USDT")); !errors.Is(err, ErrPaymentAmountMismatch) {
 		t.Fatalf("underpaid callback error = %v, want amount mismatch", err)
 	}
+	if err := validateCallbackPaymentFacts(payment, payment.GatewayOrderNo, constants.PaymentStatusSuccess, upayCallbackInput(constants.PaymentStatusSuccess, "8.5066", "USDT")); !errors.Is(err, ErrPaymentAmountMismatch) {
+		t.Fatalf("overpaid callback error = %v, want amount mismatch", err)
+	}
 	providerMismatch := upayCallbackInput(constants.PaymentStatusSuccess, "8.5065", "USDT")
 	providerMismatch.Payload[paymentcontract.GatewayPayloadUpayProviderCrypto] = "8.5064"
 	if err := validateCallbackPaymentFacts(payment, payment.GatewayOrderNo, constants.PaymentStatusSuccess, providerMismatch); !errors.Is(err, ErrPaymentAmountMismatch) {
