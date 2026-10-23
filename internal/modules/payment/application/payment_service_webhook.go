@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	orderapp "github.com/dujiao-next/internal/modules/order/application"
 	paymentcontract "github.com/dujiao-next/internal/modules/payment/contract"
 
 	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
@@ -58,6 +59,9 @@ func (s *PaymentService) HandleSyncCallback(
 	if err != nil {
 		return nil, err
 	}
+	if err := s.confirmUpayCallbackBeforeCommit(channel, payment, result); err != nil {
+		return nil, err
+	}
 
 	payload := jsonmap.JSON{}
 	if result.Payload != nil {
@@ -76,6 +80,81 @@ func (s *PaymentService) HandleSyncCallback(
 		Payload:     payload,
 	}
 	return s.HandleCallback(callbackInput)
+}
+
+// confirmUpayCallbackBeforeCommit makes the provider query part of the UPay
+// callback trust boundary. A signed callback is only a signal to query UPay;
+// the local payment is allowed to become paid only when the query itself says
+// the exact provider order is paid. This request is deliberately outside the
+// database transaction.
+func (s *PaymentService) confirmUpayCallbackBeforeCommit(
+	channel *paymentdomain.PaymentChannel,
+	payment *paymentdomain.Payment,
+	result *paymentcontract.GatewayCallbackResult,
+) error {
+	if channel == nil || payment == nil || result == nil ||
+		!strings.EqualFold(strings.TrimSpace(channel.ProviderType), constants.PaymentProviderUpay) ||
+		!strings.EqualFold(strings.TrimSpace(result.Status), constants.PaymentStatusSuccess) ||
+		payment.Status == constants.PaymentStatusSuccess {
+		return nil
+	}
+
+	// Do not spend an upstream query on an order that is already closed. The
+	// later transactional validation remains authoritative for race safety.
+	if payment.OrderID != 0 && s.orderRepo != nil {
+		order, err := s.orderRepo.GetByID(payment.OrderID)
+		if err != nil {
+			return orderapp.ErrOrderFetchFailed
+		}
+		if order == nil {
+			return orderapp.ErrOrderNotFound
+		}
+		if order.Status != constants.OrderStatusPendingPayment || order.PaidAt != nil {
+			return ErrPaymentManualReview
+		}
+	}
+
+	if s.paymentProviderRegistry == nil {
+		return ErrPaymentProviderNotSupported
+	}
+	provider, ok := s.paymentProviderRegistry.Lookup(channel.ProviderType, channel.ChannelType)
+	if !ok {
+		return ErrPaymentProviderNotSupported
+	}
+	capturer, ok := provider.(paymentcontract.GatewayCapturer)
+	if !ok {
+		return ErrPaymentProviderNotSupported
+	}
+	if err := capturer.ValidateConfig(channel.ConfigJSON, channel.InteractionMode); err != nil {
+		return mapProviderErrorToService(err)
+	}
+
+	providerRef := pickFirstNonEmpty(result.ProviderRef, payment.ProviderRef)
+	if providerRef == "" {
+		return ErrPaymentInvalid
+	}
+	ctx, cancel := detachOutboundRequestContext(context.Background())
+	defer cancel()
+	queryResult, err := capturer.QueryPayment(ctx, channel.ConfigJSON, providerRef)
+	if err != nil {
+		return mapProviderErrorToService(err)
+	}
+	if queryResult == nil || !strings.EqualFold(strings.TrimSpace(queryResult.Status), constants.PaymentStatusSuccess) {
+		return ErrPaymentManualReview
+	}
+	if queryProviderRef := strings.TrimSpace(queryResult.ProviderRef); queryProviderRef != "" && queryProviderRef != providerRef {
+		return ErrPaymentInvalid
+	}
+
+	// Query facts are authoritative for amount, currency, status, and paid time;
+	// retain callback-only metadata only when the query did not provide it.
+	result.Status = queryResult.Status
+	result.ProviderRef = pickFirstNonEmpty(queryResult.ProviderRef, providerRef)
+	result.Amount = queryResult.Amount
+	result.Currency = queryResult.Currency
+	result.PaidAt = queryResult.PaidAt
+	result.Payload = mergeProviderPayload(result.Payload, queryResult.Payload)
+	return nil
 }
 
 // HandlePaypalWebhook 处理 PayPal webhook。

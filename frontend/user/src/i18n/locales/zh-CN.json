@@ -1239,6 +1239,8 @@
     "cryptoAmount": "链上应付数量",
     "cryptoChain": "链/网络",
     "cryptoToken": "支付币种",
+    "upayCryptoAmount": "UPay 应付 USDT",
+    "upayExchangeRate": "UPay 汇率（USD/USDT）",
     "copyWalletAddress": "复制钱包地址",
     "qrTitle": "请使用扫码支付",
     "qrTip": "打开支付应用扫码完成支付。",

@@ -8,6 +8,7 @@ import (
 
 	orderapp "github.com/dujiao-next/internal/modules/order/application"
 	orderdomain "github.com/dujiao-next/internal/modules/order/domain"
+	paymentcontract "github.com/dujiao-next/internal/modules/payment/contract"
 
 	"github.com/dujiao-next/internal/constants"
 	settingsapp "github.com/dujiao-next/internal/modules/settings/application"
@@ -76,7 +77,19 @@ func paymentCoveredOrderAmount(payment *paymentdomain.Payment, callbackAmount de
 		return decimal.Zero
 	}
 	covered := payment.Amount.Decimal
-	if rate, ok := paymentExchangeRate(payment); ok {
+	if strings.EqualFold(strings.TrimSpace(payment.ProviderType), constants.PaymentProviderUpay) {
+		// UPay's callback amount is USDT while the order/payment snapshot is
+		// USD. The callback validator has already required exact equality with
+		// the UPay crypto snapshot, so use the original USD snapshot here and
+		// never compare crypto units to the order amount.
+		if payment.ProviderPayload != nil {
+			if raw, ok := payment.ProviderPayload[paymentcontract.GatewayPayloadUpayFiatAmount]; ok {
+				if fiatAmount, err := decimal.NewFromString(strings.TrimSpace(fmt.Sprint(raw))); err == nil && fiatAmount.IsPositive() {
+					covered = fiatAmount
+				}
+			}
+		}
+	} else if rate, ok := paymentExchangeRate(payment); ok {
 		source := callbackAmount
 		if source.IsZero() {
 			source = payment.Amount.Decimal
@@ -176,6 +189,9 @@ func validatePaymentCurrencyForChannel(currency string, channel *paymentdomain.P
 		return ErrPaymentCurrencyMismatch
 	}
 	if shouldUseCNYPaymentCurrency(channel) && normalized != constants.SiteCurrencyDefault {
+		return ErrPaymentCurrencyMismatch
+	}
+	if strings.EqualFold(strings.TrimSpace(channel.ProviderType), constants.PaymentProviderUpay) && normalized != "USD" {
 		return ErrPaymentCurrencyMismatch
 	}
 	return nil

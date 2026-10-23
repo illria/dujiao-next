@@ -313,6 +313,9 @@ func (s *PaymentService) ValidateChannel(channel *paymentdomain.PaymentChannel) 
 		if mode != constants.PaymentInteractionQR && mode != constants.PaymentInteractionRedirect {
 			return ErrPaymentChannelConfigInvalid
 		}
+		if providerType == constants.PaymentProviderUpay && mode != constants.PaymentInteractionRedirect {
+			return ErrPaymentChannelConfigInvalid
+		}
 		if providerType == constants.PaymentProviderBepusdt && mode == constants.PaymentInteractionQR {
 			orderMode := strings.ToLower(strings.TrimSpace(fmt.Sprint(channel.ConfigJSON["order_mode"])))
 			if orderMode == constants.PaymentBepusdtOrderModeCashier {

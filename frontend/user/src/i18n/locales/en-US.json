@@ -1286,6 +1286,8 @@
     "cryptoAmount": "On-chain amount due",
     "cryptoChain": "Chain / network",
     "cryptoToken": "Payment token",
+    "upayCryptoAmount": "UPay USDT amount",
+    "upayExchangeRate": "UPay exchange rate (USD/USDT)",
     "copyWalletAddress": "Copy wallet address",
     "qrTitle": "Scan to pay",
     "qrTip": "Open your payment app and scan to complete payment.",

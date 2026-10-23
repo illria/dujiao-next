@@ -2,13 +2,50 @@ package paymentcallbackhttp
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
+	"github.com/dujiao-next/internal/constants"
 	"github.com/gin-gonic/gin"
 )
+
+type callbackTestService struct {
+	called bool
+}
+
+func (s *callbackTestService) HandleSyncCallback(*paymentdomain.PaymentChannel, map[string][]string, []byte) (*paymentdomain.Payment, error) {
+	s.called = true
+	return nil, errors.New("signature invalid")
+}
+
+func (s *callbackTestService) HandleWechatWebhook(WechatWebhookInput) (*paymentdomain.Payment, string, error) {
+	return nil, "", errors.New("not implemented")
+}
+
+type callbackTestPaymentLookup struct {
+	payment *paymentdomain.Payment
+}
+
+func (l callbackTestPaymentLookup) GetByGatewayOrderNo(string) (*paymentdomain.Payment, error) {
+	return l.payment, nil
+}
+
+func (l callbackTestPaymentLookup) GetLatestByProviderRef(string) (*paymentdomain.Payment, error) {
+	return l.payment, nil
+}
+
+type callbackTestChannelLookup struct {
+	channel *paymentdomain.PaymentChannel
+}
+
+func (l callbackTestChannelLookup) GetByID(uint) (*paymentdomain.PaymentChannel, error) {
+	return l.channel, nil
+}
 
 func TestPaymentCallbackRejectsUnknownPayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -21,6 +58,59 @@ func TestPaymentCallbackRejectsUnknownPayload(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected status %d, got %d", http.StatusNotFound, w.Code)
+	}
+}
+
+func TestUPayCallbackWithoutSignatureReturnsFailureInsteadOfSkippingVerification(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &callbackTestService{}
+	handler := NewHandler(
+		service,
+		callbackTestPaymentLookup{payment: &paymentdomain.Payment{ID: 1, ChannelID: 2, GatewayOrderNo: "MERCHANT-20261024001", ProviderRef: "UP-ORDER-1"}},
+		callbackTestChannelLookup{channel: &paymentdomain.PaymentChannel{ID: 2, ProviderType: constants.PaymentProviderUpay}},
+		nil,
+	)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/payments/callback", strings.NewReader(`{"appId":"app-test","orderNo":"UP-ORDER-1","merchantOrderNo":"MERCHANT-20261024001"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	handler.PaymentCallback(c)
+
+	if !service.called {
+		t.Fatal("UPay callback without signature did not reach verification service")
+	}
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != "FAIL" {
+		t.Fatalf("missing signature response = %d %q, want 200 FAIL", w.Code, w.Body.String())
+	}
+}
+
+func TestCallbackRateLimiterBlocksBurstAndResetsWindow(t *testing.T) {
+	limiter := callbackRateLimiter{}
+	now := time.Unix(1792838400, 0)
+	for i := 0; i < callbackRateLimitCount; i++ {
+		if !limiter.allow("198.51.100.10", now) {
+			t.Fatalf("request %d was unexpectedly rate limited", i+1)
+		}
+	}
+	if limiter.allow("198.51.100.10", now) {
+		t.Fatal("request after the configured burst should be rate limited")
+	}
+	if !limiter.allow("198.51.100.10", now.Add(callbackRateLimitWindow)) {
+		t.Fatal("rate limiter did not reset after the window")
+	}
+}
+
+func TestPaymentCallbackRejectsOversizedBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/payments/callback", bytes.NewReader(bytes.Repeat([]byte("x"), maxCallbackBodyBytes+1)))
+
+	(&Handler{}).PaymentCallback(c)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized callback status = %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 

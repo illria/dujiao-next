@@ -12,6 +12,25 @@ import (
 // 回调兼容逻辑用它区分具备新版事实快照的支付与升级前创建的在途支付。
 const GatewayPayloadFiatCurrencySent = "_dujiao_next_fiat_currency_sent"
 
+// UPay payment facts are kept in ProviderPayload because the order/payment
+// record remains denominated in the site's USD currency while UPay settles in
+// the crypto amount returned by its exchange rate.
+const (
+	GatewayPayloadUpayOrderNo        = "upay_order_no"
+	GatewayPayloadUpayMerchantOrder  = "upay_merchant_order_no"
+	GatewayPayloadUpayFiatAmount     = "upay_fiat_amount"
+	GatewayPayloadUpayFiatCurrency   = "upay_fiat_currency"
+	GatewayPayloadUpayCryptoAmount   = "upay_crypto_amount"
+	GatewayPayloadUpayProviderCrypto = "upay_provider_crypto"
+	GatewayPayloadUpayActualCrypto   = "upay_actual_crypto"
+	GatewayPayloadUpayCryptoCurrency = "upay_crypto_currency"
+	GatewayPayloadUpayExchangeRate   = "upay_exchange_rate"
+	GatewayPayloadUpayChainType      = "upay_chain_type"
+	GatewayPayloadUpayStatus         = "upay_status"
+	GatewayPayloadUpayCreatedAt      = "upay_created_at"
+	GatewayPayloadUpayCompletedAt    = "upay_completed_at"
+)
+
 // GatewayCreateInput 是统一支付网关创建输入。
 type GatewayCreateInput struct {
 	PaymentID      uint

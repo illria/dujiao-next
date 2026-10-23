@@ -2,6 +2,7 @@ package application
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/dujiao-next/internal/config"
 	"github.com/dujiao-next/internal/logger"
@@ -30,6 +31,7 @@ var (
 	ErrPaymentStatusInvalid                = errors.New("payment status invalid")
 	ErrPaymentAmountMismatch               = errors.New("payment amount mismatch")
 	ErrPaymentCurrencyMismatch             = errors.New("payment currency mismatch")
+	ErrPaymentManualReview                = errors.New("payment requires manual review")
 	ErrPaymentChannelNotFound              = errors.New("payment channel not found")
 	ErrPaymentChannelInactive              = errors.New("payment channel inactive")
 	ErrPaymentProviderNotSupported         = errors.New("payment provider not supported")
@@ -66,6 +68,46 @@ type PaymentService struct {
 	memberLevelSvc          MemberLevelProgressor
 	paymentProviderRegistry paymentcontract.GatewayRegistry
 	resellerAccounting      resellerAccountingTransactions
+	callbackLocks            paymentCallbackLockPool
+}
+
+// paymentCallbackLockPool serializes callbacks for the same payment inside a
+// process. The transaction-level row lock remains the cross-process guard;
+// this small gate also keeps SQLite's single-connection path deterministic and
+// prevents duplicate post-commit side effects from racing in one process.
+type paymentCallbackLockPool struct {
+	mu    sync.Mutex
+	locks map[uint]*paymentCallbackLock
+}
+
+type paymentCallbackLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (p *paymentCallbackLockPool) acquire(paymentID uint) func() {
+	p.mu.Lock()
+	if p.locks == nil {
+		p.locks = make(map[uint]*paymentCallbackLock)
+	}
+	lock := p.locks[paymentID]
+	if lock == nil {
+		lock = &paymentCallbackLock{}
+		p.locks[paymentID] = lock
+	}
+	lock.refs++
+	p.mu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		p.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(p.locks, paymentID)
+		}
+		p.mu.Unlock()
+	}
 }
 
 type MemberLevelProgressor interface {
