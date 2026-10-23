@@ -24,9 +24,9 @@ type Connection struct {
 	PriceMarkupPercent decimal.Decimal `gorm:"type:decimal(10,4);not null;default:0" json:"price_markup_percent"`   // 加价百分比，如 100 = +100%（翻倍）
 	PriceRoundingMode  string          `gorm:"type:varchar(20);not null;default:'none'" json:"price_rounding_mode"` // none / ceil_int / ceil_tenth
 	AutoSyncPrice      bool            `gorm:"not null;default:false" json:"auto_sync_price"`                       // 同步时自动更新本地价格
-	PaymentFeeRate     decimal.Decimal `gorm:"type:decimal(10,4);not null;default:0" json:"payment_fee_rate"`      // 收款手续费率，百分比，如 2.5 = 2.5%
-	PaymentFixedFee    decimal.Decimal `gorm:"type:decimal(20,6);not null;default:0" json:"payment_fixed_fee"`     // 每笔固定收款手续费（本地计价币种）
-	MinimumProfit      decimal.Decimal `gorm:"type:decimal(20,6);not null;default:0" json:"minimum_profit"`        // 每件/每个 SKU 的最低利润（本地计价币种）
+	PaymentFeeRate     decimal.Decimal `gorm:"type:decimal(10,4);not null;default:0" json:"payment_fee_rate"`       // 收款手续费率，百分比，如 2.5 = 2.5%
+	PaymentFixedFee    decimal.Decimal `gorm:"type:decimal(20,6);not null;default:0" json:"payment_fixed_fee"`      // 每笔固定收款手续费（本地计价币种）
+	MinimumProfit      decimal.Decimal `gorm:"type:decimal(20,6);not null;default:0" json:"minimum_profit"`         // 每件/每个 SKU 的最低利润（本地计价币种）
 	CreatedAt          time.Time       `gorm:"index" json:"created_at"`
 	UpdatedAt          time.Time       `gorm:"index" json:"updated_at"`
 	DeletedAt          *time.Time      `gorm:"index" json:"-"`
