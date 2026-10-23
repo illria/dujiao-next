@@ -3,6 +3,8 @@ package application
 import (
 	"testing"
 
+	mappingdomain "github.com/dujiao-next/internal/modules/catalog/mapping/domain"
+	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
 	"github.com/shopspring/decimal"
 )
 
@@ -76,5 +78,28 @@ func TestCalculateLocalPrice(t *testing.T) {
 					tt.upstream, tt.rate, tt.markup, tt.rounding, result.String(), tt.expected)
 			}
 		})
+	}
+}
+
+func TestPriceForMappingUsesExactDecimalMultiplier(t *testing.T) {
+	conn := &siteconnectiondomain.Connection{
+		ExchangeRate:       decimal.NewFromInt(1),
+		PriceMarkupPercent: decimal.Zero,
+		PriceRoundingMode:  "none",
+	}
+	mapping := &mappingdomain.Mapping{}
+	got := priceForMapping(conn, mapping, decimal.RequireFromString("0.398"), decimal.NewFromInt(5))
+	if !got.Equal(decimal.RequireFromString("1.99")) {
+		t.Fatalf("priceForMapping = %s, want 1.99", got)
+	}
+}
+
+func TestManualPriceModeDisablesAutomaticSync(t *testing.T) {
+	conn := &siteconnectiondomain.Connection{Protocol: "prodseller", AutoSyncPrice: true}
+	if shouldAutoSyncPrice(&mappingdomain.Mapping{PriceMode: mappingdomain.PriceModeManual}, conn) {
+		t.Fatal("manual price policy must not be overwritten by sync")
+	}
+	if !shouldAutoSyncPrice(&mappingdomain.Mapping{PriceMode: mappingdomain.PriceModeAuto}, conn) {
+		t.Fatal("auto price policy should sync")
 	}
 }

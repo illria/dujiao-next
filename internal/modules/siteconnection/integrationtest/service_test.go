@@ -10,6 +10,7 @@ import (
 
 	"github.com/dujiao-next/internal/constants"
 	"github.com/dujiao-next/internal/crypto"
+	"github.com/dujiao-next/internal/upstream"
 
 	"github.com/shopspring/decimal"
 )
@@ -101,6 +102,54 @@ func TestSiteConnectionServiceUpdateSkipsReapplyWhenPriceConfigUnchanged(t *test
 	}
 	if len(reapplier.calls) != 0 {
 		t.Fatalf("expected no reapply when price config unchanged, got %#v", reapplier.calls)
+	}
+}
+
+func TestSiteConnectionServiceProdSellerStoresOnlyEnvironmentReference(t *testing.T) {
+	repo := &siteConnectionRepoStub{}
+	svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+
+	conn, err := svc.Create(siteconnectionapp.CreateInput{
+		Name:     "ProdSeller",
+		Protocol: constants.ConnectionProtocolProdSeller,
+	})
+	if err != nil {
+		t.Fatalf("create ProdSeller connection failed: %v", err)
+	}
+	if conn.ApiKey != upstream.ProdSellerAPIKeyEnv {
+		t.Fatalf("api key reference = %q, want %q", conn.ApiKey, upstream.ProdSellerAPIKeyEnv)
+	}
+	if conn.ApiSecret != "" {
+		t.Fatal("ProdSeller connection must not persist an API secret")
+	}
+	if conn.BaseURL != upstream.ProdSellerDefaultBaseURL {
+		t.Fatalf("base url = %q, want %q", conn.BaseURL, upstream.ProdSellerDefaultBaseURL)
+	}
+}
+
+func TestSiteConnectionServiceProdSellerRejectsSecretInput(t *testing.T) {
+	repo := &siteConnectionRepoStub{}
+	svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+
+	if _, err := svc.Create(siteconnectionapp.CreateInput{
+		Name:      "ProdSeller",
+		Protocol:  constants.ConnectionProtocolProdSeller,
+		ApiSecret: "must-not-be-stored",
+	}); err == nil {
+		t.Fatal("expected ProdSeller API secret input to be rejected")
+	}
+}
+
+func TestSiteConnectionServiceProdSellerRejectsCustomEnvironmentReference(t *testing.T) {
+	repo := &siteConnectionRepoStub{}
+	svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+
+	if _, err := svc.Create(siteconnectionapp.CreateInput{
+		Name:     "ProdSeller",
+		Protocol: constants.ConnectionProtocolProdSeller,
+		ApiKey:   "OTHER_PRODSELLER_KEY",
+	}); err == nil {
+		t.Fatal("expected ProdSeller to require PRODSELLER_API_KEY")
 	}
 }
 

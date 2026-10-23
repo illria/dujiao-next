@@ -208,3 +208,63 @@ func TestMappingStoreDeleteHidesMappingFromEveryReadPath(t *testing.T) {
 		t.Fatalf("ListUpstreamIDsByConnection after delete = ids %v err %v; want empty", ids, err)
 	}
 }
+
+func TestMappingStoreExternalIDIsScopedAndUniqueForActiveMappings(t *testing.T) {
+	store, _, db := setupMappingStoreTest(t)
+	firstProduct := createMappedProduct(t, db, "external-first", "外部商品一")
+	secondProduct := createMappedProduct(t, db, "external-second", "外部商品二")
+	thirdProduct := createMappedProduct(t, db, "external-third", "外部商品三")
+	fourthProduct := createMappedProduct(t, db, "external-fourth", "外部商品四")
+
+	externalID := "66f1a9b4c7e8d90123456789"
+	first := &mappingdomain.Mapping{
+		ConnectionID:              10,
+		LocalProductID:            firstProduct.ID,
+		UpstreamProductExternalID: &externalID,
+		UpstreamStatus:            mappingdomain.UpstreamStatusActive,
+		IsActive:                  true,
+	}
+	if err := store.Create(first); err != nil {
+		t.Fatalf("create first external mapping: %v", err)
+	}
+
+	if got, err := store.GetByConnectionAndUpstreamExternalID(10, externalID); err != nil || got == nil || got.ID != first.ID {
+		t.Fatalf("lookup external mapping = %#v, %v; want mapping %d", got, err, first.ID)
+	}
+
+	duplicate := &mappingdomain.Mapping{
+		ConnectionID:              10,
+		LocalProductID:            secondProduct.ID,
+		UpstreamProductExternalID: &externalID,
+		UpstreamStatus:            mappingdomain.UpstreamStatusActive,
+		IsActive:                  true,
+	}
+	if err := store.Create(duplicate); err == nil {
+		t.Fatal("duplicate active external ID in one connection should fail")
+	}
+
+	otherConnection := &mappingdomain.Mapping{
+		ConnectionID:              11,
+		LocalProductID:            thirdProduct.ID,
+		UpstreamProductExternalID: &externalID,
+		UpstreamStatus:            mappingdomain.UpstreamStatusActive,
+		IsActive:                  true,
+	}
+	if err := store.Create(otherConnection); err != nil {
+		t.Fatalf("same external ID in another connection: %v", err)
+	}
+
+	if err := store.Delete(first.ID); err != nil {
+		t.Fatalf("soft-delete first external mapping: %v", err)
+	}
+	replacement := &mappingdomain.Mapping{
+		ConnectionID:              10,
+		LocalProductID:            fourthProduct.ID,
+		UpstreamProductExternalID: &externalID,
+		UpstreamStatus:            mappingdomain.UpstreamStatusActive,
+		IsActive:                  true,
+	}
+	if err := store.Create(replacement); err != nil {
+		t.Fatalf("reuse external ID after soft delete: %v", err)
+	}
+}
