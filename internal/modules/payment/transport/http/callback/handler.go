@@ -19,8 +19,8 @@ import (
 const maxCallbackBodyBytes = 1 << 20
 
 const (
-	callbackRateLimitWindow = time.Minute
-	callbackRateLimitCount  = 120
+	callbackRateLimitWindow  = time.Minute
+	callbackRateLimitCount   = 120
 	callbackRateLimitMaxKeys = 4096
 )
 

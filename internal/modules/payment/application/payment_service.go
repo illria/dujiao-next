@@ -31,7 +31,7 @@ var (
 	ErrPaymentStatusInvalid                = errors.New("payment status invalid")
 	ErrPaymentAmountMismatch               = errors.New("payment amount mismatch")
 	ErrPaymentCurrencyMismatch             = errors.New("payment currency mismatch")
-	ErrPaymentManualReview                = errors.New("payment requires manual review")
+	ErrPaymentManualReview                 = errors.New("payment requires manual review")
 	ErrPaymentChannelNotFound              = errors.New("payment channel not found")
 	ErrPaymentChannelInactive              = errors.New("payment channel inactive")
 	ErrPaymentProviderNotSupported         = errors.New("payment provider not supported")
@@ -68,7 +68,7 @@ type PaymentService struct {
 	memberLevelSvc          MemberLevelProgressor
 	paymentProviderRegistry paymentcontract.GatewayRegistry
 	resellerAccounting      resellerAccountingTransactions
-	callbackLocks            paymentCallbackLockPool
+	callbackLocks           paymentCallbackLockPool
 }
 
 // paymentCallbackLockPool serializes callbacks for the same payment inside a

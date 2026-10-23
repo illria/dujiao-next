@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
 	"github.com/dujiao-next/internal/constants"
+	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
 	"github.com/gin-gonic/gin"
 )
 
