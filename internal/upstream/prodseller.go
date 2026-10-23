@@ -94,9 +94,9 @@ type ProdSellerProduct struct {
 	// InStock is a pointer because GET /v1/products/:id omits the field and
 	// exposes the exact quantity through stock instead. Keeping the missing
 	// state distinct prevents an omitted field from becoming false implicitly.
-	InStock                 *bool              `json:"inStock,omitempty"`
-	Stock                   *int               `json:"stock"`
-	RequiresEmailActivation bool               `json:"requiresEmailActivation"`
+	InStock                 *bool `json:"inStock,omitempty"`
+	Stock                   *int  `json:"stock"`
+	RequiresEmailActivation bool  `json:"requiresEmailActivation"`
 }
 
 // IsAvailable resolves the upstream availability without confusing an omitted
