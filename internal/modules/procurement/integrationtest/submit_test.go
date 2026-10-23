@@ -258,7 +258,8 @@ func TestSubmitToUpstream_SMMFailureBecomesUnknownWithoutRollbackOrRetry(t *test
 		t.Fatalf("save procurement snapshot: %v", err)
 	}
 
-	if err := newTestProcurementService(db, connSvc).SubmitToUpstream(proc.ID); err != nil {
+	svc := newTestProcurementService(db, connSvc)
+	if err := svc.SubmitToUpstream(proc.ID); err != nil {
 		t.Fatalf("SubmitToUpstream: %v", err)
 	}
 
@@ -278,6 +279,12 @@ func TestSubmitToUpstream_SMMFailureBecomesUnknownWithoutRollbackOrRetry(t *test
 	}
 	if servicesCalls != 1 || addCalls != 1 {
 		t.Fatalf("expected one preflight and one non-retried add, services=%d add=%d", servicesCalls, addCalls)
+	}
+	if err := svc.RetryManual(proc.ID); !errors.Is(err, procurementcontract.ErrStatusInvalid) {
+		t.Fatalf("unknown SMM outcome must not be manually retried without reconciliation, got %v", err)
+	}
+	if err := svc.CancelManual(proc.ID); !errors.Is(err, procurementcontract.ErrStatusInvalid) {
+		t.Fatalf("unknown SMM outcome must not be canceled without reconciliation, got %v", err)
 	}
 }
 

@@ -412,8 +412,8 @@ const profitClass = (order: ProcurementOrderWithRelations) => {
   return parseFloat(p) >= 0 ? 'text-emerald-600' : 'text-red-600'
 }
 
-const canRetry = (status: string) => ['failed', 'rejected', 'unknown'].includes(status)
-const canCancel = (status: string) => ['pending', 'submitted', 'accepted', 'failed', 'unknown'].includes(status)
+const canRetry = (status: string) => ['failed', 'rejected'].includes(status)
+const canCancel = (status: string) => ['pending', 'submitted', 'accepted', 'failed'].includes(status)
 
 onMounted(() => {
   fetchConnections()
