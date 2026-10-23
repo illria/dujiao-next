@@ -394,6 +394,25 @@ func VerifyCallback(cfg *Config, data *CallbackData) error {
 	if err := ValidateConfig(cfg); err != nil {
 		return err
 	}
+	requiredFields := map[string]string{
+		"appId":           data.AppID,
+		"orderNo":         data.OrderNo,
+		"merchantOrderNo": data.MerchantOrderNo,
+		"chainType":       data.ChainType,
+		"crypto":          data.Crypto,
+		"actualCrypto":    data.ActualCrypto,
+		"poundage":        data.Poundage,
+		"actualPoundage":  data.ActualPoundage,
+		"status":          data.Status,
+		"createdAt":       data.CreatedAt,
+		"completedAt":     data.CompletedAt,
+		"signature":       data.Signature,
+	}
+	for field, value := range requiredFields {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%w: callback field %s is required", ErrResponseInvalid, field)
+		}
+	}
 	if data.AppID == "" || data.AppID != cfg.AppID || data.OrderNo == "" || data.MerchantOrderNo == "" {
 		return fmt.Errorf("%w: callback identity mismatch", ErrResponseInvalid)
 	}

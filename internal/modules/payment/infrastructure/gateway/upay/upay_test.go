@@ -189,6 +189,52 @@ func TestVerifyCallbackAcceptsValidSignatureAndRejectsTampering(t *testing.T) {
 	}
 }
 
+func TestVerifyCallbackRejectsMissingRequiredFields(t *testing.T) {
+	fields := []string{
+		"appId",
+		"orderNo",
+		"merchantOrderNo",
+		"chainType",
+		"crypto",
+		"actualCrypto",
+		"poundage",
+		"actualPoundage",
+		"status",
+		"createdAt",
+		"completedAt",
+	}
+	for _, missing := range fields {
+		t.Run(missing, func(t *testing.T) {
+			callback := map[string]string{
+				"appId":           "app-test",
+				"orderNo":         "UP-ORDER-1",
+				"merchantOrderNo": "MERCHANT-20261024001",
+				"chainType":       ChainTypeTRC20,
+				"crypto":          "8.5065",
+				"actualCrypto":    "8.5065",
+				"poundage":        "0.0000",
+				"actualPoundage":  "0.0000",
+				"status":          StatusSuccess,
+				"createdAt":       "1792838400",
+				"completedAt":     "1792838460",
+			}
+			delete(callback, missing)
+			callback["signature"] = Sign(callback, testAppSecret)
+			body, err := json.Marshal(callback)
+			if err != nil {
+				t.Fatalf("marshal callback: %v", err)
+			}
+			parsed, err := ParseCallback(body)
+			if err != nil {
+				t.Fatalf("ParseCallback() error = %v", err)
+			}
+			if !errors.Is(VerifyCallback(testConfig("https://api.example"), parsed), ErrResponseInvalid) {
+				t.Fatalf("callback missing %s should fail closed", missing)
+			}
+		})
+	}
+}
+
 func TestQueryOrderFindsProviderOrderAndReturnsNilWhenNotVisible(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != queryPath {
