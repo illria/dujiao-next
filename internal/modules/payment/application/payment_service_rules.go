@@ -3,6 +3,7 @@ package application
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
 
@@ -116,6 +117,76 @@ func paymentCoveredOrderAmount(payment *paymentdomain.Payment, callbackAmount de
 		}
 	}
 	return normalizeOrderAmount(covered)
+}
+
+// validateUpayCallbackPaymentFacts keeps the site's USD amount separate from
+// UPay's TRC20/USDT settlement amount. The crypto amount saved at order
+// creation is the only accepted amount for a successful callback/query.
+// money.Amount intentionally has two-decimal presentation precision, so this
+// check reads the original high-precision UPay strings from ProviderPayload.
+func validateUpayCallbackPaymentFacts(payment *paymentdomain.Payment, status string, input PaymentCallbackInput) error {
+	if payment == nil || !strings.EqualFold(strings.TrimSpace(payment.Currency), "USD") {
+		return ErrPaymentCurrencyMismatch
+	}
+	if callbackProviderRef := strings.TrimSpace(input.ProviderRef); callbackProviderRef != "" &&
+		strings.TrimSpace(payment.ProviderRef) != "" && callbackProviderRef != strings.TrimSpace(payment.ProviderRef) {
+		return ErrPaymentInvalid
+	}
+	if status == constants.PaymentStatusSuccess && payment.Status != constants.PaymentStatusSuccess {
+		if payment.Status != constants.PaymentStatusPending ||
+			(payment.ExpiredAt != nil && !payment.ExpiredAt.After(time.Now())) {
+			return ErrPaymentManualReview
+		}
+	}
+	if callbackCurrency := strings.ToUpper(strings.TrimSpace(input.Currency)); callbackCurrency != "" && callbackCurrency != "USDT" {
+		return ErrPaymentCurrencyMismatch
+	}
+	if payment.ProviderPayload == nil {
+		if status == constants.PaymentStatusSuccess {
+			return ErrPaymentAmountMismatch
+		}
+		return nil
+	}
+	if rawFiatCurrency, hasFiatCurrency := payment.ProviderPayload[paymentcontract.GatewayPayloadUpayFiatCurrency]; hasFiatCurrency {
+		if fiatCurrency := strings.ToUpper(strings.TrimSpace(fmt.Sprint(rawFiatCurrency))); fiatCurrency != "" && fiatCurrency != "<nil>" && fiatCurrency != "USD" {
+			return ErrPaymentCurrencyMismatch
+		}
+	}
+	if status != constants.PaymentStatusSuccess {
+		if status == constants.PaymentStatusExpired {
+			// UPay expiry is an operator-review outcome. Do not pass it to the
+			// generic expired path, which would release balances automatically.
+			return ErrPaymentManualReview
+		}
+		return nil
+	}
+
+	expectedRaw := strings.TrimSpace(fmt.Sprint(payment.ProviderPayload[paymentcontract.GatewayPayloadUpayCryptoAmount]))
+	expected, err := decimal.NewFromString(expectedRaw)
+	if err != nil || !expected.IsPositive() {
+		return ErrPaymentAmountMismatch
+	}
+	if rateRaw := strings.TrimSpace(fmt.Sprint(payment.ProviderPayload[paymentcontract.GatewayPayloadUpayExchangeRate])); rateRaw != "" {
+		rate, rateErr := decimal.NewFromString(rateRaw)
+		if rateErr != nil || !rate.IsPositive() {
+			return ErrPaymentAmountMismatch
+		}
+	}
+
+	actualRaw := strings.TrimSpace(fmt.Sprint(input.Payload[paymentcontract.GatewayPayloadUpayActualCrypto]))
+	actual, err := decimal.NewFromString(actualRaw)
+	if err != nil || !actual.IsPositive() || actual.Cmp(expected) != 0 {
+		return ErrPaymentAmountMismatch
+	}
+	providerRaw := strings.TrimSpace(fmt.Sprint(input.Payload[paymentcontract.GatewayPayloadUpayProviderCrypto]))
+	if providerRaw == "" || providerRaw == "<nil>" {
+		return ErrPaymentAmountMismatch
+	}
+	providerAmount, providerErr := decimal.NewFromString(providerRaw)
+	if providerErr != nil || !providerAmount.IsPositive() || providerAmount.Cmp(expected) != 0 {
+		return ErrPaymentAmountMismatch
+	}
+	return nil
 }
 
 // normalizeOrderAmount 归一化金额精度与下限。

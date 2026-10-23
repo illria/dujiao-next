@@ -33,7 +33,7 @@ func TestPaymentServiceImplementationIsSplitByResponsibility(t *testing.T) {
 			"normalizeOrderAmount", "calculatePaymentAmounts", "paymentCoveredOrderAmount", "paymentExchangeRate", "pickFirstNonEmpty",
 			"shouldMarkFulfilling", "shouldUseCNYPaymentCurrency", "validatePaymentAmountForChannel",
 			"validatePaymentCurrencyForChannel", "resolveExpireMinutes", "normalizePaymentStatus",
-			"isPaymentStatusValid", "shouldAutoFulfill", "isOrderFullyAutoFulfill",
+			"isPaymentStatusValid", "shouldAutoFulfill", "isOrderFullyAutoFulfill", "validateUpayCallbackPaymentFacts",
 			"buildOrderSubject",
 		},
 		"payment_service_channel_rules.go": {
