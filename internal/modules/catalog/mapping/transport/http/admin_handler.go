@@ -3,6 +3,7 @@ package mappinghttp
 import (
 	"context"
 	"errors"
+	"strings"
 
 	mappingapp "github.com/dujiao-next/internal/modules/catalog/mapping/application"
 	mappingcontract "github.com/dujiao-next/internal/modules/catalog/mapping/contract"
@@ -12,6 +13,7 @@ import (
 	"github.com/dujiao-next/internal/platform/http/ginutil"
 	"github.com/dujiao-next/internal/platform/http/response"
 	"github.com/dujiao-next/internal/upstream"
+	"github.com/shopspring/decimal"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,6 +38,13 @@ type ProductMappingService interface {
 // AdminHandler 处理后台商品映射管理请求。
 type AdminHandler struct {
 	service ProductMappingService
+}
+
+type prodSellerAdminService interface {
+	ListProdSellerProducts(connectionID uint) (*upstream.ProdSellerProductListResult, error)
+	SyncProdSellerCatalog(connectionID uint) error
+	SetPricePolicy(mappingID uint, mode string, manualPrice, multiplier decimal.Decimal) error
+	BatchSetPricePolicy(mappingIDs []uint, mode string, manualPrice, multiplier decimal.Decimal) (int, error)
 }
 
 // NewAdminHandler 创建后台商品映射 Handler。
@@ -366,6 +375,155 @@ func (h *AdminHandler) DeleteProductMapping(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"deleted": true})
+}
+
+type pricePolicyRequest struct {
+	Mode       string `json:"mode" binding:"required"`
+	Price      string `json:"price"`
+	Multiplier string `json:"multiplier"`
+}
+
+func parsePricePolicyRequest(req pricePolicyRequest) (string, decimal.Decimal, decimal.Decimal, error) {
+	mode := strings.ToLower(strings.TrimSpace(req.Mode))
+	if mode != mappingdomain.PriceModeManual && mode != mappingdomain.PriceModeAuto {
+		return "", decimal.Zero, decimal.Zero, mappingapp.ErrInvalidPricePolicy
+	}
+	manualPrice := decimal.Zero
+	multiplier := decimal.Zero
+	var err error
+	if strings.TrimSpace(req.Price) != "" {
+		manualPrice, err = decimal.NewFromString(strings.TrimSpace(req.Price))
+		if err != nil {
+			return "", decimal.Zero, decimal.Zero, mappingapp.ErrInvalidPricePolicy
+		}
+	}
+	if strings.TrimSpace(req.Multiplier) != "" {
+		multiplier, err = decimal.NewFromString(strings.TrimSpace(req.Multiplier))
+		if err != nil {
+			return "", decimal.Zero, decimal.Zero, mappingapp.ErrInvalidPricePolicy
+		}
+	}
+	return mode, manualPrice, multiplier, nil
+}
+
+// UpdateProductMappingPricePolicy 修改单个映射商品的价格策略。
+func (h *AdminHandler) UpdateProductMappingPricePolicy(c *gin.Context) {
+	service, ok := h.service.(prodSellerAdminService)
+	if !ok {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.prodseller_not_supported", nil)
+		return
+	}
+	id, err := ginutil.ParseParamUint(c, "id")
+	if err != nil {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.bad_request", err)
+		return
+	}
+	var req pricePolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ginutil.RespondBindError(c, err)
+		return
+	}
+	mode, price, multiplier, err := parsePricePolicyRequest(req)
+	if err != nil {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.invalid_price_policy", nil)
+		return
+	}
+	if err := service.SetPricePolicy(id, mode, price, multiplier); err != nil {
+		if errors.Is(err, mappingcontract.ErrMappingNotFound) {
+			ginutil.RespondError(c, response.CodeNotFound, "error.mapping_not_found", nil)
+			return
+		}
+		if errors.Is(err, mappingapp.ErrInvalidPricePolicy) {
+			ginutil.RespondError(c, response.CodeBadRequest, "error.invalid_price_policy", nil)
+			return
+		}
+		ginutil.RespondError(c, response.CodeInternal, "error.price_policy_update_failed", err)
+		return
+	}
+	response.Success(c, gin.H{"updated": true})
+}
+
+type batchPricePolicyRequest struct {
+	IDs        []uint `json:"ids" binding:"required,min=1"`
+	Mode       string `json:"mode" binding:"required"`
+	Price      string `json:"price"`
+	Multiplier string `json:"multiplier"`
+}
+
+// BatchUpdateProductMappingPricePolicy 批量设置映射商品价格策略。
+func (h *AdminHandler) BatchUpdateProductMappingPricePolicy(c *gin.Context) {
+	service, ok := h.service.(prodSellerAdminService)
+	if !ok {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.prodseller_not_supported", nil)
+		return
+	}
+	var req batchPricePolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ginutil.RespondBindError(c, err)
+		return
+	}
+	mode, price, multiplier, err := parsePricePolicyRequest(pricePolicyRequest{Mode: req.Mode, Price: req.Price, Multiplier: req.Multiplier})
+	if err != nil {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.invalid_price_policy", nil)
+		return
+	}
+	updated, err := service.BatchSetPricePolicy(req.IDs, mode, price, multiplier)
+	if err != nil {
+		ginutil.RespondError(c, response.CodeInternal, "error.price_policy_update_failed", err)
+		return
+	}
+	response.Success(c, gin.H{"updated_count": updated, "total": len(req.IDs)})
+}
+
+type syncProdSellerRequest struct {
+	ConnectionID uint `json:"connection_id" binding:"required"`
+}
+
+// SyncProdSellerCatalog 手动触发一次 ProdSeller 只读目录同步。
+func (h *AdminHandler) SyncProdSellerCatalog(c *gin.Context) {
+	service, ok := h.service.(prodSellerAdminService)
+	if !ok {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.prodseller_not_supported", nil)
+		return
+	}
+	var req syncProdSellerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		ginutil.RespondBindError(c, err)
+		return
+	}
+	if err := service.SyncProdSellerCatalog(req.ConnectionID); err != nil {
+		if errors.Is(err, siteconnectioncontract.ErrNotFound) {
+			ginutil.RespondError(c, response.CodeNotFound, "error.connection_not_found", nil)
+			return
+		}
+		ginutil.RespondError(c, response.CodeInternal, "error.prodseller_sync_failed", err)
+		return
+	}
+	response.Success(c, gin.H{"synced": true})
+}
+
+// ListProdSellerProducts 只读展示 ProdSeller 商品，不执行导入或下单。
+func (h *AdminHandler) ListProdSellerProducts(c *gin.Context) {
+	service, ok := h.service.(prodSellerAdminService)
+	if !ok {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.prodseller_not_supported", nil)
+		return
+	}
+	connectionID, err := ginutil.ParseQueryUint(c.Query("connection_id"), true)
+	if err != nil || connectionID == 0 {
+		ginutil.RespondError(c, response.CodeBadRequest, "error.bad_request", err)
+		return
+	}
+	result, err := service.ListProdSellerProducts(connectionID)
+	if err != nil {
+		if errors.Is(err, siteconnectioncontract.ErrNotFound) {
+			ginutil.RespondError(c, response.CodeNotFound, "error.connection_not_found", nil)
+			return
+		}
+		ginutil.RespondError(c, response.CodeInternal, "error.upstream_products_fetch_failed", err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // ListUpstreamProducts 代理拉取上游商品列表

@@ -56,6 +56,7 @@ type ProductListResult struct {
 // UpstreamProduct 上游商品信息
 type UpstreamProduct struct {
 	ID               uint                              `json:"id"`
+	ExternalID       string                            `json:"external_id,omitempty"`
 	Slug             string                            `json:"slug"`
 	SeoMeta          jsonmap.JSON                      `json:"seo_meta"`
 	Title            jsonmap.JSON                      `json:"title"`
@@ -95,6 +96,7 @@ type CategoryListResult struct {
 // UpstreamSKU 上游 SKU 信息
 type UpstreamSKU struct {
 	ID            uint         `json:"id"`
+	ExternalID    string       `json:"external_id,omitempty"`
 	SKUCode       string       `json:"sku_code"`
 	SpecValues    jsonmap.JSON `json:"spec_values"`
 	PriceAmount   string       `json:"price_amount"`
@@ -181,6 +183,8 @@ func NewAdapter(conn *siteconnectiondomain.Connection, uploadsDir string) (Adapt
 	switch conn.Protocol {
 	case constants.ConnectionProtocolDujiaoNext:
 		return NewDujiaoNextAdapter(conn, uploadsDir), nil
+	case constants.ConnectionProtocolProdSeller:
+		return NewProdSellerAdapter(conn), nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", conn.Protocol)
 	}

@@ -586,11 +586,15 @@ export interface AdminProductMapping {
   connection_id: number
   local_product_id: number
   upstream_product_id: number
+  upstream_product_external_id?: string
+  upstream_currency?: string
+  upstream_public_price?: number | string
+  price_mode?: 'auto' | 'manual' | string
+  price_multiplier?: number | string
   upstream_sku_id: number
   upstream_product_name: string
   upstream_sku_name: string
   upstream_price: number
-  upstream_currency: string
   is_active: boolean
   upstream_status?: UpstreamProductStatus
   last_sync_at?: string

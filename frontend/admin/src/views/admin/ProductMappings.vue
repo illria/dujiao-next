@@ -153,6 +153,11 @@ const getConnectionName = (connectionId: number) => {
   return conn?.name || `#${connectionId}`
 }
 
+const selectedConnectionIsProdSeller = computed(() => {
+  const connectionID = Number(normalizeFilterValue(filters.connection_id))
+  return connections.value.find((conn) => conn.id === connectionID)?.protocol === 'prodseller'
+})
+
 const getCategoryOptionLabel = (category: AdminCategory) => {
   return buildAdminCategoryPath(category, categoryMap.value, (item) => getLocalizedText(item.name))
 }
@@ -267,6 +272,13 @@ const debouncedSearch = useDebounceFn(() => fetchMappings(1), 300)
 // --- Batch selection ---
 const selectedMappingIds = ref<Set<number>>(new Set())
 const batchOperating = ref(false)
+const catalogSyncing = ref(false)
+const showPriceModal = ref(false)
+const priceSaving = ref(false)
+const priceTargetIds = ref<number[]>([])
+const priceMode = ref<'manual' | 'auto'>('manual')
+const manualPriceInput = ref('')
+const multiplierInput = ref('')
 
 const allMappingsSelected = computed(() => {
   if (mappings.value.length === 0) return false
@@ -328,6 +340,80 @@ const handleBatchDelete = async () => {
     selectedMappingIds.value = new Set()
     fetchMappings(pagination.page)
   } catch (err: any) { notifyError(err?.response?.data?.message || err?.message) } finally { batchOperating.value = false }
+}
+
+const openPricePolicyModal = (mapping?: AdminProductMapping & { product?: AdminProduct }) => {
+  priceTargetIds.value = mapping ? [mapping.id] : Array.from(selectedMappingIds.value)
+  priceMode.value = 'manual'
+  manualPriceInput.value = mapping?.product?.price_amount !== undefined ? String(mapping.product.price_amount) : ''
+  multiplierInput.value = ''
+  showPriceModal.value = priceTargetIds.value.length > 0
+}
+
+const closePricePolicyModal = () => {
+  showPriceModal.value = false
+  priceTargetIds.value = []
+  manualPriceInput.value = ''
+  multiplierInput.value = ''
+}
+
+const submitPricePolicy = async () => {
+  const ids = priceTargetIds.value
+  if (ids.length === 0) return
+  if (priceMode.value === 'manual') {
+    const value = manualPriceInput.value.trim()
+    if (!value || !Number.isFinite(Number(value)) || Number(value) <= 0) {
+      notifyError(t('productMappings.pricePolicy.invalid'))
+      return
+    }
+  } else if (multiplierInput.value.trim() !== '') {
+    const value = Number(multiplierInput.value.trim())
+    if (!Number.isFinite(value) || value < 0) {
+      notifyError(t('productMappings.pricePolicy.invalid'))
+      return
+    }
+  }
+
+  priceSaving.value = true
+  try {
+    const data = {
+      mode: priceMode.value,
+      ...(priceMode.value === 'manual'
+        ? { price: manualPriceInput.value.trim() }
+        : { multiplier: multiplierInput.value.trim() || undefined }),
+    }
+    if (ids.length === 1) {
+      await adminAPI.updateProductMappingPricePolicy(ids[0], data)
+    } else {
+      await adminAPI.batchUpdateProductMappingPricePolicy(ids, data)
+    }
+    notifySuccess(t('productMappings.pricePolicy.success'))
+    selectedMappingIds.value = new Set()
+    closePricePolicyModal()
+    fetchMappings(pagination.page)
+  } catch (err: any) {
+    notifyError(err?.response?.data?.message || t('productMappings.pricePolicy.failed'))
+  } finally {
+    priceSaving.value = false
+  }
+}
+
+const handleSyncProdSellerCatalog = async () => {
+  const connectionID = Number(normalizeFilterValue(filters.connection_id))
+  if (!connectionID) {
+    notifyError(t('productMappings.sync.catalogRequireConnection'))
+    return
+  }
+  catalogSyncing.value = true
+  try {
+    await adminAPI.syncProdSellerCatalog(connectionID)
+    notifySuccess(t('productMappings.sync.catalogSuccess'))
+    fetchMappings(1)
+  } catch (err: any) {
+    notifyError(err?.response?.data?.message || t('productMappings.sync.catalogFailed'))
+  } finally {
+    catalogSyncing.value = false
+  }
 }
 
 // --- Actions ---
@@ -721,6 +807,13 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
       <h1 class="text-2xl font-semibold">{{ t('productMappings.title') }}</h1>
       <div class="flex w-full gap-2 sm:w-auto">
         <Button variant="outline" class="w-full sm:w-auto" :disabled="refreshing" @click="refresh">{{ t('productMappings.refresh') }}</Button>
+        <Button
+          v-if="selectedConnectionIsProdSeller"
+          variant="outline"
+          class="w-full sm:w-auto"
+          :disabled="catalogSyncing"
+          @click="handleSyncProdSellerCatalog"
+        >{{ catalogSyncing ? t('productMappings.actions.syncing') : t('productMappings.sync.catalogButton') }}</Button>
         <Button class="w-full sm:w-auto" @click="openImportModal">{{ t('productMappings.importButton') }}</Button>
       </div>
     </div>
@@ -778,6 +871,7 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
       <span class="text-sm font-medium">{{ t('productMappings.batch.selected', { count: selectedMappingIds.size }) }}</span>
       <div class="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" :disabled="batchOperating" @click="handleBatchSync">{{ t('productMappings.batch.sync') }}</Button>
+        <Button size="sm" variant="outline" :disabled="batchOperating || priceSaving" @click="openPricePolicyModal()">{{ t('productMappings.batch.price') }}</Button>
         <Button size="sm" variant="outline" :disabled="batchOperating" @click="handleBatchStatus(true)">{{ t('productMappings.batch.enable') }}</Button>
         <Button size="sm" variant="outline" :disabled="batchOperating" @click="handleBatchStatus(false)">{{ t('productMappings.batch.disable') }}</Button>
         <Button size="sm" variant="destructive" :disabled="batchOperating" @click="handleBatchDelete">{{ t('productMappings.batch.delete') }}</Button>
@@ -848,7 +942,7 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>{{ t('productMappings.columns.connection') }}: <span class="text-foreground">{{ getConnectionName(mapping.connection_id) }}</span></span>
-              <span>{{ t('productMappings.detail.upstreamId') }}: <span class="font-mono text-foreground">{{ mapping.upstream_product_id }}</span></span>
+              <span>{{ t('productMappings.detail.upstreamId') }}: <span class="font-mono text-foreground">{{ mapping.upstream_product_external_id || mapping.upstream_product_id }}</span></span>
               <span>{{ t('productMappings.detail.localPrice') }}: <span class="font-mono text-foreground">{{ getLocalPriceRange(mapping) }}</span></span>
               <span>SKU: <span class="text-foreground">{{ getLocalSkuCount(mapping) }}</span></span>
               <span>{{ t('productMappings.columns.lastSynced') }}: {{ formatTime((mapping.last_synced_at ?? mapping.last_sync_at) as string | undefined) }}</span>
@@ -860,6 +954,7 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
             <Button size="sm" variant="outline" class="w-full sm:w-auto" :disabled="syncingId === mapping.id" @click="handleSync(mapping)">
               {{ syncingId === mapping.id ? t('productMappings.actions.syncing') : t('productMappings.actions.sync') }}
             </Button>
+            <Button size="sm" variant="outline" class="w-full sm:w-auto" @click="openPricePolicyModal(mapping)">{{ t('productMappings.actions.price') }}</Button>
             <Button size="sm" variant="outline" class="w-full sm:w-auto" @click="handleToggleStatus(mapping)">
               {{ mapping.is_active ? t('productMappings.actions.disable') : t('productMappings.actions.enable') }}
             </Button>
@@ -984,6 +1079,43 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
         @change-page-size="changePageSize"
       />
     </div>
+
+    <!-- Price policy dialog -->
+    <Dialog v-model:open="showPriceModal" @update:open="(value: boolean) => { if (!value) closePricePolicyModal() }">
+      <DialogScrollContent class="w-[calc(100vw-1rem)] max-w-lg p-4 sm:p-6">
+        <DialogHeader>
+          <DialogTitle>{{ priceTargetIds.length > 1 ? t('productMappings.pricePolicy.batchTitle') : t('productMappings.pricePolicy.singleTitle') }}</DialogTitle>
+        </DialogHeader>
+        <div class="space-y-4">
+          <div class="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            {{ t('productMappings.batch.selected', { count: priceTargetIds.length }) }}
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('productMappings.pricePolicy.mode') }}</label>
+            <Select v-model="priceMode">
+              <SelectTrigger class="h-9 w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="manual">{{ t('productMappings.pricePolicy.manual') }}</SelectItem>
+                <SelectItem value="auto">{{ t('productMappings.pricePolicy.auto') }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div v-if="priceMode === 'manual'">
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('productMappings.pricePolicy.price') }}</label>
+            <Input v-model="manualPriceInput" inputmode="decimal" :placeholder="t('productMappings.pricePolicy.pricePlaceholder')" />
+          </div>
+          <div v-else>
+            <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('productMappings.pricePolicy.multiplier') }}</label>
+            <Input v-model="multiplierInput" inputmode="decimal" :placeholder="t('productMappings.pricePolicy.multiplierPlaceholder')" />
+            <p class="mt-1 text-xs text-muted-foreground">{{ t('productMappings.pricePolicy.multiplierHint') }}</p>
+          </div>
+        </div>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="outline" :disabled="priceSaving" @click="closePricePolicyModal">{{ t('admin.common.cancel') }}</Button>
+          <Button :disabled="priceSaving" @click="submitPricePolicy">{{ priceSaving ? t('admin.common.submitting') : t('productMappings.pricePolicy.submit') }}</Button>
+        </div>
+      </DialogScrollContent>
+    </Dialog>
 
     <!-- Import Dialog -->
     <Dialog v-model:open="showImportModal" @update:open="(value: boolean) => { if (!value) closeImportModal() }">

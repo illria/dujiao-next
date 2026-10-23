@@ -266,6 +266,7 @@ func (s *Service) importUpstreamProduct(connectionID uint, upstreamProductID uin
 			LocalProductID:          product.ID,
 			UpstreamProductID:       upstreamProductID,
 			UpstreamFulfillmentType: upstreamFulfillmentType,
+			PriceMode:               mappingdomain.PriceModeAuto,
 			IsActive:                true,
 			LastSyncedAt:            &now,
 		}

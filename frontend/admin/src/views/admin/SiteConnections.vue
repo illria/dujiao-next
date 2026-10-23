@@ -52,6 +52,15 @@ const siteConnectionSchema = {
 }
 const { errors, validate, clearErrors } = useFormValidation(siteConnectionSchema)
 
+const handleProtocolChange = (value: string) => {
+  form.protocol = value
+  if (value === 'prodseller') {
+    if (!form.base_url) form.base_url = 'https://prodseller.com/v1'
+    form.api_key = 'PRODSELLER_API_KEY'
+    form.api_secret = ''
+  }
+}
+
 const fetchConnections = async (page = 1) => {
   loading.value = true
   try {
@@ -385,22 +394,23 @@ onMounted(() => {
               <p v-if="errors.base_url" class="text-xs text-destructive mt-1">{{ errors.base_url }}</p>
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.apiKey') }}</label>
-              <Input v-model="form.api_key" :placeholder="t('siteConnections.form.apiKeyPlaceholder')" />
+              <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ form.protocol === 'prodseller' ? t('siteConnections.form.apiKeyEnv') : t('siteConnections.form.apiKey') }}</label>
+              <Input v-model="form.api_key" :disabled="form.protocol === 'prodseller'" :placeholder="form.protocol === 'prodseller' ? t('siteConnections.form.apiKeyEnvPlaceholder') : t('siteConnections.form.apiKeyPlaceholder')" />
               <p v-if="errors.api_key" class="text-xs text-destructive mt-1">{{ errors.api_key }}</p>
             </div>
-            <div>
+            <div v-if="form.protocol !== 'prodseller'">
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.apiSecret') }}</label>
               <Input v-model="form.api_secret" type="password" :placeholder="t('siteConnections.form.apiSecretPlaceholder')" />
             </div>
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.protocol') }}</label>
-              <Select v-model="form.protocol">
+              <Select :model-value="form.protocol" @update:modelValue="handleProtocolChange">
                 <SelectTrigger class="h-9 w-full">
                   <SelectValue :placeholder="t('siteConnections.form.protocolPlaceholder')" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="dujiao-next">dujiao-next</SelectItem>
+                  <SelectItem value="prodseller">ProdSeller</SelectItem>
                 </SelectContent>
               </Select>
             </div>

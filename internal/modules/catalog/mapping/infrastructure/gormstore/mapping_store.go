@@ -68,6 +68,17 @@ func (r *MappingStore) GetByConnectionAndUpstreamID(connectionID, upstreamProduc
 	return &m, nil
 }
 
+func (r *MappingStore) GetByConnectionAndUpstreamExternalID(connectionID uint, upstreamProductID string) (*mappingdomain.Mapping, error) {
+	var m mappingdomain.Mapping
+	if err := r.db.Where("deleted_at IS NULL AND connection_id = ? AND upstream_product_external_id = ?", connectionID, upstreamProductID).First(&m).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &m, nil
+}
+
 func (r *MappingStore) Create(mapping *mappingdomain.Mapping) error {
 	return r.db.Create(mapping).Error
 }
@@ -143,6 +154,14 @@ func (r *MappingStore) List(filter mappingcontract.ListFilter) ([]mappingdomain.
 func (r *MappingStore) ListActiveByConnection(connectionID uint) ([]mappingdomain.Mapping, error) {
 	var mappings []mappingdomain.Mapping
 	if err := r.db.Where("deleted_at IS NULL AND connection_id = ? AND is_active = ?", connectionID, true).Find(&mappings).Error; err != nil {
+		return nil, err
+	}
+	return mappings, nil
+}
+
+func (r *MappingStore) ListByConnection(connectionID uint) ([]mappingdomain.Mapping, error) {
+	var mappings []mappingdomain.Mapping
+	if err := r.db.Where("deleted_at IS NULL AND connection_id = ?", connectionID).Find(&mappings).Error; err != nil {
 		return nil, err
 	}
 	return mappings, nil

@@ -45,10 +45,7 @@ func (s *Service) SetMarkupReapplier(r MarkupReapplier) {
 
 // Create 创建连接
 func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, error) {
-	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.BaseURL) == "" {
-		return nil, siteconnectioncontract.ErrInvalid
-	}
-	if strings.TrimSpace(input.ApiKey) == "" || strings.TrimSpace(input.ApiSecret) == "" {
+	if strings.TrimSpace(input.Name) == "" {
 		return nil, siteconnectioncontract.ErrInvalid
 	}
 
@@ -57,9 +54,37 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 		protocol = constants.ConnectionProtocolDujiaoNext
 	}
 
-	encryptedSecret, err := crypto.Encrypt(s.encryptKey, input.ApiSecret)
-	if err != nil {
-		return nil, err
+	baseURL := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
+	if protocol == constants.ConnectionProtocolProdSeller && baseURL == "" {
+		baseURL = upstream.ProdSellerDefaultBaseURL
+	}
+	if baseURL == "" {
+		return nil, siteconnectioncontract.ErrInvalid
+	}
+
+	apiKey := strings.TrimSpace(input.ApiKey)
+	if protocol == constants.ConnectionProtocolProdSeller && apiKey == "" {
+		apiKey = upstream.ProdSellerAPIKeyEnv
+	}
+	if apiKey == "" {
+		return nil, siteconnectioncontract.ErrInvalid
+	}
+
+	var encryptedSecret string
+	if protocol == constants.ConnectionProtocolProdSeller {
+		// ProdSeller 的 ApiKey 字段只保存环境变量名，ApiSecret 路径必须为空。
+		if apiKey != upstream.ProdSellerAPIKeyEnv || strings.TrimSpace(input.ApiSecret) != "" {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
+	} else {
+		if strings.TrimSpace(input.ApiSecret) == "" {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
+		var err error
+		encryptedSecret, err = crypto.Encrypt(s.encryptKey, input.ApiSecret)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	retryMax := input.RetryMax
@@ -78,8 +103,8 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 
 	conn := &siteconnectiondomain.Connection{
 		Name:               strings.TrimSpace(input.Name),
-		BaseURL:            strings.TrimRight(strings.TrimSpace(input.BaseURL), "/"),
-		ApiKey:             strings.TrimSpace(input.ApiKey),
+		BaseURL:            baseURL,
+		ApiKey:             apiKey,
 		ApiSecret:          encryptedSecret,
 		Protocol:           protocol,
 		CallbackURL:        strings.TrimSpace(input.CallbackURL),
@@ -119,18 +144,39 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	if strings.TrimSpace(input.BaseURL) != "" {
 		conn.BaseURL = strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
 	}
+	protocol := conn.Protocol
+	if strings.TrimSpace(input.Protocol) != "" {
+		protocol = strings.TrimSpace(input.Protocol)
+	}
 	if strings.TrimSpace(input.ApiKey) != "" {
+		if protocol == constants.ConnectionProtocolProdSeller && strings.TrimSpace(input.ApiKey) != upstream.ProdSellerAPIKeyEnv {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
 		conn.ApiKey = strings.TrimSpace(input.ApiKey)
 	}
 	if strings.TrimSpace(input.ApiSecret) != "" {
+		if protocol == constants.ConnectionProtocolProdSeller {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
 		encrypted, err := crypto.Encrypt(s.encryptKey, input.ApiSecret)
 		if err != nil {
 			return nil, err
 		}
 		conn.ApiSecret = encrypted
 	}
-	if strings.TrimSpace(input.Protocol) != "" {
-		conn.Protocol = strings.TrimSpace(input.Protocol)
+	conn.Protocol = protocol
+	if conn.Protocol == constants.ConnectionProtocolProdSeller {
+		if conn.ApiKey == "" {
+			conn.ApiKey = upstream.ProdSellerAPIKeyEnv
+		}
+		if conn.ApiKey != upstream.ProdSellerAPIKeyEnv {
+			return nil, siteconnectioncontract.ErrInvalid
+		}
+		// 切换到 ProdSeller 后不再使用历史 ApiSecret 入库路径。
+		conn.ApiSecret = ""
+		if conn.BaseURL == "" {
+			conn.BaseURL = upstream.ProdSellerDefaultBaseURL
+		}
 	}
 	if input.CallbackURL != "" {
 		conn.CallbackURL = strings.TrimSpace(input.CallbackURL)
@@ -198,6 +244,11 @@ func (s *Service) GetByID(id uint) (*siteconnectiondomain.Connection, error) {
 // List 列表查询
 func (s *Service) List(filter siteconnectioncontract.ListFilter) ([]siteconnectiondomain.Connection, int64, error) {
 	return s.connRepo.List(filter)
+}
+
+// ListActive 返回当前启用的上游连接，供后台同步 scheduler 发现尚未建立映射的商品源。
+func (s *Service) ListActive() ([]siteconnectiondomain.Connection, error) {
+	return s.connRepo.ListActive()
 }
 
 // SetStatus 设置连接状态
@@ -286,6 +337,9 @@ func (s *Service) GetAdapter(conn *siteconnectiondomain.Connection) (upstream.Ad
 }
 
 func (s *Service) decryptSecret(conn *siteconnectiondomain.Connection) (string, error) {
+	if conn == nil || strings.TrimSpace(conn.ApiSecret) == "" {
+		return "", nil
+	}
 	return crypto.Decrypt(s.encryptKey, conn.ApiSecret)
 }
 
