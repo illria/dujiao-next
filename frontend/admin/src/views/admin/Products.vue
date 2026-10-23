@@ -192,6 +192,9 @@ const formatAutoStockSummary = (product: AdminProduct) => {
   const locked = toSafeInt(product?.auto_stock_locked)
   const sold = toSafeInt(product?.auto_stock_sold)
   const available = toSafeInt(product?.auto_stock_available)
+  if (available < 0 || total < 0) {
+    return t('admin.products.stock.unlimited')
+  }
   return t('admin.products.stock.summary', { total, locked, sold, available })
 }
 
@@ -220,6 +223,9 @@ const manualStockBadgeClass = (product: AdminProduct) => {
 
 const autoStockBadgeClass = (product: AdminProduct) => {
   const available = toSafeInt(product?.auto_stock_available)
+  if (available < 0) {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  }
   if (available <= 0) {
     return 'border-rose-200 bg-rose-50 text-rose-700'
   }

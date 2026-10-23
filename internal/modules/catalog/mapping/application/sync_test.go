@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -16,6 +17,44 @@ import (
 // fakeSettingsProvider 以固定同步间隔实现 SettingsProvider。
 type fakeSettingsProvider struct {
 	interval time.Duration
+}
+
+type prodSellerDetailAdapter struct {
+	details map[string]*upstream.ProdSellerProduct
+}
+
+func (f prodSellerDetailAdapter) ListExternalProducts(context.Context) (*upstream.ProdSellerProductListResult, error) {
+	return nil, nil
+}
+
+func (f prodSellerDetailAdapter) GetExternalProduct(_ context.Context, productID string) (*upstream.ProdSellerProduct, error) {
+	return f.details[productID], nil
+}
+
+func (f prodSellerDetailAdapter) GetExternalBalance(context.Context) (*upstream.ProdSellerBalance, error) {
+	return nil, nil
+}
+
+func TestEnrichProdSellerProductsUsesExactDetailStock(t *testing.T) {
+	listInStock := false
+	stock := 47
+	products, err := enrichProdSellerProducts(prodSellerDetailAdapter{
+		details: map[string]*upstream.ProdSellerProduct{
+			"product-1": {
+				ID:    "product-1",
+				Stock: &stock,
+			},
+		},
+	}, []upstream.ProdSellerProduct{{ID: "product-1", InStock: &listInStock}})
+	if err != nil {
+		t.Fatalf("enrichProdSellerProducts returned error: %v", err)
+	}
+	if len(products) != 1 || products[0].Stock == nil || *products[0].Stock != 47 {
+		t.Fatalf("expected exact detail stock=47, got %#v", products)
+	}
+	if !products[0].IsAvailable() {
+		t.Fatal("expected positive detail stock to restore availability")
+	}
 }
 
 func (f fakeSettingsProvider) GetUpstreamSyncConfig(fallbackInterval string) (settingsintegration.UpstreamSyncConfig, error) {
@@ -114,6 +153,7 @@ func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 		ID:           7,
 		ExchangeRate: decimal.NewFromInt(1),
 	}
+	inStock := true
 	source := &upstream.ProdSellerProduct{
 		ID:          "external-41",
 		Name:        "Example",
@@ -121,7 +161,7 @@ func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 		Price:       decimal.NewFromFloat(1.25),
 		PublicPrice: decimal.NewFromFloat(1.5),
 		Delivery:    upstream.ProdSellerDelivery{Type: "instant"},
-		InStock:     true,
+		InStock:     &inStock,
 	}
 
 	created, err := svc.createProdSellerProduct(7, 11, conn, source, time.Now())
@@ -130,6 +170,9 @@ func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 	}
 	if products.product == nil || products.product.ID != 41 {
 		t.Fatalf("expected created product ID 41, got %#v", products.product)
+	}
+	if !products.product.IsActive {
+		t.Fatal("expected an available instant product to be active after import")
 	}
 	if mappings.mapping == nil || mappings.mapping.LocalProductID != 41 {
 		t.Fatalf("expected mapping to reference created product ID 41, got %#v", mappings.mapping)

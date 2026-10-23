@@ -91,9 +91,41 @@ type ProdSellerProduct struct {
 	ImageURL                string             `json:"imageUrl"`
 	Delivery                ProdSellerDelivery `json:"delivery"`
 	Sold                    json.RawMessage    `json:"sold"`
-	InStock                 bool               `json:"inStock"`
+	// InStock is a pointer because GET /v1/products/:id omits the field and
+	// exposes the exact quantity through stock instead. Keeping the missing
+	// state distinct prevents an omitted field from becoming false implicitly.
+	InStock                 *bool              `json:"inStock,omitempty"`
 	Stock                   *int               `json:"stock"`
 	RequiresEmailActivation bool               `json:"requiresEmailActivation"`
+}
+
+// IsAvailable resolves the upstream availability without confusing an omitted
+// inStock field with an explicit false. When the detail endpoint provides an
+// exact stock quantity, that quantity is authoritative over the list flag.
+func (p ProdSellerProduct) IsAvailable() bool {
+	if p.Stock != nil {
+		return *p.Stock != 0
+	}
+	if p.InStock != nil {
+		return *p.InStock
+	}
+	return false
+}
+
+// StockQuantity returns the best stock representation available from the API.
+// A nil stock together with inStock=true means the upstream did not expose an
+// exact quantity, so -1 preserves the existing unlimited/unknown convention.
+func (p ProdSellerProduct) StockQuantity() int {
+	if p.Stock != nil {
+		if *p.Stock < 0 {
+			return -1
+		}
+		return *p.Stock
+	}
+	if p.InStock != nil && *p.InStock {
+		return -1
+	}
+	return 0
 }
 
 type ProdSellerProductListResult struct {
@@ -393,14 +425,8 @@ func (p ProdSellerProduct) toUpstreamProduct() UpstreamProduct {
 	if strings.EqualFold(strings.TrimSpace(p.Delivery.Type), "instant") {
 		fulfillment = constants.FulfillmentTypeAuto
 	}
-	active := p.InStock
-	stock := -1
-	if p.Stock != nil {
-		stock = *p.Stock
-	}
-	if !p.InStock {
-		stock = 0
-	}
+	active := p.IsAvailable()
+	stock := p.StockQuantity()
 	title := jsonmap.JSON{"zh-CN": p.Name, "zh-TW": p.Name, "en": p.Name}
 	description := jsonmap.JSON{"zh-CN": p.Description, "zh-TW": p.Description, "en": p.Description}
 	return UpstreamProduct{
