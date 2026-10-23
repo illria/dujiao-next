@@ -67,6 +67,10 @@ func (r *captureImportProductRepository) Create(product *productdomain.Product) 
 	return nil
 }
 
+func (r *captureImportProductRepository) QuickUpdate(string, map[string]interface{}) error {
+	return nil
+}
+
 type captureImportSKURepository struct{}
 
 func (captureImportSKURepository) Create(sku *productdomain.ProductSKU) error {
