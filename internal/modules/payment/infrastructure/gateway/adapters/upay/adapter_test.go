@@ -92,7 +92,11 @@ func TestUpayAdapterVerifyCallbackRejectsBadSignatureAndMapsSuccess(t *testing.T
 		t.Fatalf("marshal callback: %v", err)
 	}
 
-	result, err := NewUpayAdapter().VerifyCallback(adapterConfig("https://api.example"), nil, body)
+	verifier, ok := NewUpayAdapter().(paymentcontract.GatewayCallbackVerifier)
+	if !ok {
+		t.Fatal("UPay adapter does not expose callback verification")
+	}
+	result, err := verifier.VerifyCallback(adapterConfig("https://api.example"), nil, body)
 	if err != nil {
 		t.Fatalf("VerifyCallback() error = %v", err)
 	}
@@ -106,7 +110,7 @@ func TestUpayAdapterVerifyCallbackRejectsBadSignatureAndMapsSuccess(t *testing.T
 	callback["signature"] = strings.Repeat("0", 32)
 	badBody, _ := json.Marshal(callback)
 	if err := func() error {
-		_, err := NewUpayAdapter().VerifyCallback(adapterConfig("https://api.example"), nil, badBody)
+		_, err := verifier.VerifyCallback(adapterConfig("https://api.example"), nil, badBody)
 		return err
 	}(); !errors.Is(err, paymentcontract.ErrGatewaySignatureInvalid) {
 		t.Fatalf("bad callback error = %v, want signature error", err)

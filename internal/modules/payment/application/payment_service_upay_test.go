@@ -234,7 +234,7 @@ func TestUpayPaymentCallbackReplayIsIdempotent(t *testing.T) {
 	expiredInput.PaymentID = payment.ID
 	expiredInput.ChannelID = channel.ID
 	expiredInput.ProviderRef = "UP-ORDER-1"
-	if err := svc.HandleCallback(expiredInput); !errors.Is(err, ErrPaymentManualReview) {
+	if _, err := svc.HandleCallback(expiredInput); !errors.Is(err, ErrPaymentManualReview) {
 		t.Fatalf("expired UPay callback error = %v, want manual review", err)
 	}
 	var pendingPayment paymentdomain.Payment
