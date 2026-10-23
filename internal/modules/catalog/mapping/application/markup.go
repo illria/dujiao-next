@@ -9,8 +9,8 @@ import (
 	"github.com/dujiao-next/internal/constants"
 	mappingcontract "github.com/dujiao-next/internal/modules/catalog/mapping/contract"
 	mappingdomain "github.com/dujiao-next/internal/modules/catalog/mapping/domain"
-	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
 	siteconnectioncontract "github.com/dujiao-next/internal/modules/siteconnection/contract"
+	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
 
 	productdomain "github.com/dujiao-next/internal/modules/catalog/product/domain"
 

@@ -382,8 +382,10 @@ const submitPricePolicy = async () => {
         ? { price: manualPriceInput.value.trim() }
         : { multiplier: multiplierInput.value.trim() || undefined }),
     }
+    const [mappingID] = ids
+    if (mappingID === undefined) return
     if (ids.length === 1) {
-      await adminAPI.updateProductMappingPricePolicy(ids[0], data)
+      await adminAPI.updateProductMappingPricePolicy(mappingID, data)
     } else {
       await adminAPI.batchUpdateProductMappingPricePolicy(ids, data)
     }

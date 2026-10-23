@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import type { AcceptableValue } from 'reka-ui'
 import { adminAPI } from '@/api/admin'
 import type { AdminSiteConnection } from '@/api/types'
 import IdCell from '@/components/IdCell.vue'
@@ -52,7 +53,8 @@ const siteConnectionSchema = {
 }
 const { errors, validate, clearErrors } = useFormValidation(siteConnectionSchema)
 
-const handleProtocolChange = (value: string) => {
+const handleProtocolChange = (value: AcceptableValue) => {
+  if (typeof value !== 'string') return
   form.protocol = value
   if (value === 'prodseller') {
     if (!form.base_url) form.base_url = 'https://prodseller.com/v1'
