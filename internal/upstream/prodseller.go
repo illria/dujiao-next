@@ -83,14 +83,14 @@ type ProdSellerDelivery struct {
 // while older fixtures/documentation used a boolean. Keep the raw JSON so
 // either representation remains compatible; the sync path does not use it.
 type ProdSellerProduct struct {
-	ID                      string             `json:"id"`
-	Name                    string             `json:"name"`
-	Description             string             `json:"description"`
-	Price                   decimal.Decimal    `json:"price"`
-	PublicPrice             decimal.Decimal    `json:"publicPrice"`
-	ImageURL                string             `json:"imageUrl"`
-	Delivery                ProdSellerDelivery `json:"delivery"`
-	Sold                    json.RawMessage    `json:"sold"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Price       decimal.Decimal    `json:"price"`
+	PublicPrice decimal.Decimal    `json:"publicPrice"`
+	ImageURL    string             `json:"imageUrl"`
+	Delivery    ProdSellerDelivery `json:"delivery"`
+	Sold        json.RawMessage    `json:"sold"`
 	// InStock is a pointer because GET /v1/products/:id omits the field and
 	// exposes the exact quantity through stock instead. Keeping the missing
 	// state distinct prevents an omitted field from becoming false implicitly.

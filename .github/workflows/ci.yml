@@ -71,7 +71,6 @@ jobs:
       - name: Check formatting
         shell: bash
         run: |
-          gofmt -d $(git ls-files '*.go')
           unformatted="$(gofmt -l $(git ls-files '*.go'))"
           if [[ -n "$unformatted" ]]; then
             echo "::error::The following Go files are not formatted:"
