@@ -210,6 +210,25 @@ const toLocalCurrency = (upstreamPrice: number, connectionId: number): number =>
   return upstreamPrice * getConnectionExchangeRate(connectionId)
 }
 
+const getLocalPrices = (mapping: AdminProductMapping & { product?: AdminProduct }): number[] => {
+  const product = mapping.product
+  if (!product) return []
+  if (!product.skus || product.skus.length === 0) {
+    const price = Number(product.price_amount)
+    return Number.isFinite(price) && price > 0 ? [price] : []
+  }
+  return product.skus
+    .map((sku) => Number(sku.price_amount))
+    .filter((price) => Number.isFinite(price) && price > 0)
+}
+
+const isAbovePublicPrice = (mapping: AdminProductMapping & { product?: AdminProduct }) => {
+  const publicPrice = Number(mapping.upstream_public_price)
+  if (!Number.isFinite(publicPrice) || publicPrice <= 0) return false
+  const publicPriceLocal = publicPrice * getConnectionExchangeRate(mapping.connection_id)
+  return getLocalPrices(mapping).some((price) => price > publicPriceLocal)
+}
+
 // --- Fetch ---
 
 const fetchConnections = async () => {
@@ -941,11 +960,24 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
               >
                 {{ t('productMappings.upstreamStatus.deleted') }}
               </span>
+              <span
+                v-if="mapping.price_protection_blocked"
+                class="shrink-0 inline-flex rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] text-red-700"
+              >
+                {{ t('productMappings.status.priceProtectionBlocked') }}
+              </span>
+              <span
+                v-if="isAbovePublicPrice(mapping)"
+                class="shrink-0 inline-flex rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700"
+              >
+                {{ t('productMappings.status.abovePublicPrice') }}
+              </span>
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
               <span>{{ t('productMappings.columns.connection') }}: <span class="text-foreground">{{ getConnectionName(mapping.connection_id) }}</span></span>
               <span>{{ t('productMappings.detail.upstreamId') }}: <span class="font-mono text-foreground">{{ mapping.upstream_product_external_id || mapping.upstream_product_id }}</span></span>
-              <span>{{ t('productMappings.detail.localPrice') }}: <span class="font-mono text-foreground">{{ getLocalPriceRange(mapping) }}</span></span>
+              <span>{{ t('productMappings.detail.localPrice') }}: <span class="font-mono" :class="isAbovePublicPrice(mapping) ? 'text-red-700' : 'text-foreground'">{{ getLocalPriceRange(mapping) }}</span></span>
+              <span v-if="Number(mapping.upstream_public_price) > 0">{{ t('productMappings.detail.upstreamPublicPrice') }}: <span class="font-mono text-foreground">{{ mapping.upstream_public_price }} {{ mapping.upstream_currency || '' }}</span></span>
               <span>SKU: <span class="text-foreground">{{ getLocalSkuCount(mapping) }}</span></span>
               <span>{{ t('productMappings.columns.lastSynced') }}: {{ formatTime((mapping.last_synced_at ?? mapping.last_sync_at) as string | undefined) }}</span>
             </div>
@@ -973,6 +1005,14 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
             {{ t('productMappings.detail.loadFailed') }}
           </div>
           <div v-else class="px-5 py-4">
+            <div v-if="mapping.price_protection_blocked || isAbovePublicPrice(mapping)" class="mb-3 flex flex-wrap gap-2 text-xs">
+              <span v-if="mapping.price_protection_blocked" class="rounded border border-red-200 bg-red-50 px-2 py-1 text-red-700">
+                {{ t('productMappings.status.priceProtectionBlocked') }}<span v-if="Number(mapping.price_protection_floor) > 0"> · {{ t('productMappings.detail.localPrice') }} ≥ {{ mapping.price_protection_floor }}</span>
+              </span>
+              <span v-if="isAbovePublicPrice(mapping)" class="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
+                {{ t('productMappings.status.abovePublicPrice') }}
+              </span>
+            </div>
             <!-- SKU comparison table -->
             <h4 class="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {{ t('productMappings.detail.skuComparison') }}
@@ -1092,6 +1132,7 @@ onMounted(() => { fetchConnections(); fetchCategories(); fetchMappings() })
           <div class="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
             {{ t('productMappings.batch.selected', { count: priceTargetIds.length }) }}
           </div>
+          <p class="text-xs text-muted-foreground">{{ t('productMappings.pricePolicy.protectionHint') }}</p>
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('productMappings.pricePolicy.mode') }}</label>
             <Select v-model="priceMode">

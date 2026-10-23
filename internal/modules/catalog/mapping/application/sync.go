@@ -133,6 +133,8 @@ func (s *Service) SyncProduct(mappingID uint) error {
 	if err != nil {
 		return err
 	}
+	mapping.PriceProtectionBlocked = false
+	mapping.PriceProtectionFloor = money.FromDecimal(decimal.Zero)
 
 	// 构建上游 SKU 查找表
 	upstreamSKUMap := make(map[uint]upstream.UpstreamSKU, len(upProduct.SKUs))
@@ -178,13 +180,21 @@ func (s *Service) SyncProduct(mappingID uint) error {
 		localSKU, _ := s.skus.GetByID(skuMappings[i].LocalSKUID)
 		if localSKU != nil {
 			localSKU.SpecValuesJSON = upSKU.SpecValues
-			localSKU.IsActive = upSKU.IsActive
 			// 如果启用了自动同步价格，按加价比例更新本地售价和成本价
 			if shouldAutoSyncPrice(mapping, conn) {
 				newLocalPrice := priceForMapping(conn, mapping, upPrice, decimal.Zero)
 				localSKU.PriceAmount = money.FromDecimal(newLocalPrice.Round(2))
 				localSKU.CostPriceAmount = money.FromDecimal(convertCurrency(upPrice, conn.ExchangeRate).Round(2))
 			}
+			floor, belowFloor, protectionErr := priceBelowProtectionFloor(conn, upPrice, localSKU.PriceAmount.Decimal)
+			if protectionErr != nil {
+				belowFloor = true
+			}
+			if floor.GreaterThan(mapping.PriceProtectionFloor.Decimal) {
+				mapping.PriceProtectionFloor = money.FromDecimal(floor)
+			}
+			mapping.PriceProtectionBlocked = mapping.PriceProtectionBlocked || belowFloor
+			localSKU.IsActive = upSKU.IsActive && !belowFloor
 			_ = s.skus.Update(localSKU)
 		}
 	}
@@ -197,13 +207,21 @@ func (s *Service) SyncProduct(mappingID uint) error {
 
 		skuPrice, _ := decimal.NewFromString(upSKU.PriceAmount)
 		localPrice := CalculateLocalPrice(skuPrice, conn.ExchangeRate, conn.PriceMarkupPercent, conn.PriceRoundingMode)
+		floor, belowFloor, protectionErr := priceBelowProtectionFloor(conn, skuPrice, localPrice)
+		if protectionErr != nil {
+			belowFloor = true
+		}
+		if floor.GreaterThan(mapping.PriceProtectionFloor.Decimal) {
+			mapping.PriceProtectionFloor = money.FromDecimal(floor)
+		}
+		mapping.PriceProtectionBlocked = mapping.PriceProtectionBlocked || belowFloor
 		newLocalSKU := productdomain.ProductSKU{
 			ProductID:       mapping.LocalProductID,
 			SKUCode:         upSKU.SKUCode,
 			SpecValuesJSON:  upSKU.SpecValues,
 			PriceAmount:     money.FromDecimal(localPrice.Round(2)),
 			CostPriceAmount: money.FromDecimal(convertCurrency(skuPrice, conn.ExchangeRate).Round(2)), // 成本价 = 上游价格 × 汇率（本地币种）
-			IsActive:        upSKU.IsActive,
+			IsActive:        upSKU.IsActive && !belowFloor,
 			SortOrder:       0,
 		}
 		if err := s.skus.Create(&newLocalSKU); err != nil {
@@ -223,8 +241,13 @@ func (s *Service) SyncProduct(mappingID uint) error {
 	}
 
 	// ── 2c. 如果启用了自动同步价格，更新 Product.PriceAmount 为最低 SKU 价格 ──
+	if mapping.PriceProtectionBlocked && localProduct != nil {
+		localProduct.IsActive = false
+	}
 	if shouldAutoSyncPrice(mapping, conn) && localProduct != nil {
 		s.recalcProductPrice(localProduct)
+	} else if mapping.PriceProtectionBlocked && localProduct != nil {
+		_ = s.products.Update(localProduct)
 	}
 
 	// 上游未返回批发价时不覆盖本地配置，避免运营手动配置被同步任务清空。
@@ -696,6 +719,8 @@ func (s *Service) syncProductFromData(mapping *mappingdomain.Mapping, conn *site
 	if err != nil {
 		return
 	}
+	mapping.PriceProtectionBlocked = false
+	mapping.PriceProtectionFloor = money.FromDecimal(decimal.Zero)
 
 	upstreamSKUMap := make(map[uint]upstream.UpstreamSKU, len(upProduct.SKUs))
 	for _, us := range upProduct.SKUs {
@@ -746,12 +771,20 @@ func (s *Service) syncProductFromData(mapping *mappingdomain.Mapping, conn *site
 		localSKU, _ := s.skus.GetByID(skuMappings[i].LocalSKUID)
 		if localSKU != nil {
 			localSKU.SpecValuesJSON = upSKU.SpecValues
-			localSKU.IsActive = upSKU.IsActive
 			if shouldAutoSyncPrice(mapping, conn) {
 				newLocalPrice := priceForMapping(conn, mapping, upPrice, decimal.Zero)
 				localSKU.PriceAmount = money.FromDecimal(newLocalPrice.Round(2))
 				localSKU.CostPriceAmount = money.FromDecimal(convertCurrency(upPrice, conn.ExchangeRate).Round(2))
 			}
+			floor, belowFloor, protectionErr := priceBelowProtectionFloor(conn, upPrice, localSKU.PriceAmount.Decimal)
+			if protectionErr != nil {
+				belowFloor = true
+			}
+			if floor.GreaterThan(mapping.PriceProtectionFloor.Decimal) {
+				mapping.PriceProtectionFloor = money.FromDecimal(floor)
+			}
+			mapping.PriceProtectionBlocked = mapping.PriceProtectionBlocked || belowFloor
+			localSKU.IsActive = upSKU.IsActive && !belowFloor
 			_ = s.skus.Update(localSKU)
 		}
 	}
@@ -771,13 +804,21 @@ func (s *Service) syncProductFromData(mapping *mappingdomain.Mapping, conn *site
 			continue
 		}
 		localPrice := CalculateLocalPrice(skuPrice, conn.ExchangeRate, conn.PriceMarkupPercent, conn.PriceRoundingMode)
+		floor, belowFloor, protectionErr := priceBelowProtectionFloor(conn, skuPrice, localPrice)
+		if protectionErr != nil {
+			belowFloor = true
+		}
+		if floor.GreaterThan(mapping.PriceProtectionFloor.Decimal) {
+			mapping.PriceProtectionFloor = money.FromDecimal(floor)
+		}
+		mapping.PriceProtectionBlocked = mapping.PriceProtectionBlocked || belowFloor
 		newLocalSKU := productdomain.ProductSKU{
 			ProductID:       mapping.LocalProductID,
 			SKUCode:         upSKU.SKUCode,
 			SpecValuesJSON:  upSKU.SpecValues,
 			PriceAmount:     money.FromDecimal(localPrice.Round(2)),
 			CostPriceAmount: money.FromDecimal(convertCurrency(skuPrice, conn.ExchangeRate).Round(2)),
-			IsActive:        upSKU.IsActive,
+			IsActive:        upSKU.IsActive && !belowFloor,
 			SortOrder:       0,
 		}
 		if err := s.skus.Create(&newLocalSKU); err != nil {
@@ -796,8 +837,13 @@ func (s *Service) syncProductFromData(mapping *mappingdomain.Mapping, conn *site
 	}
 
 	// 同步价格
+	if mapping.PriceProtectionBlocked && localProduct != nil {
+		localProduct.IsActive = false
+	}
 	if shouldAutoSyncPrice(mapping, conn) && localProduct != nil {
 		s.recalcProductPrice(localProduct)
+	} else if mapping.PriceProtectionBlocked && localProduct != nil {
+		_ = s.products.Update(localProduct)
 	}
 
 	if len(upProduct.WholesalePrices) > 0 {
@@ -1032,6 +1078,10 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 	externalID := strings.TrimSpace(source.ID)
 	externalIDRef := externalID
 	sourcePrice := source.Price
+	priceProtectionFloor, priceProtectionBlocked, err := priceBelowProtectionFloor(conn, sourcePrice, priceForMapping(conn, nil, sourcePrice, decimal.Zero))
+	if err != nil {
+		return nil, err
+	}
 	mapping := &mappingdomain.Mapping{
 		ConnectionID:              connectionID,
 		UpstreamProductID:         0,
@@ -1041,6 +1091,8 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		UpstreamCurrency:          "USDT",
 		UpstreamPublicPrice:       money.FromDecimal(source.PublicPrice.Round(2)),
 		PriceMode:                 mappingdomain.PriceModeAuto,
+		PriceProtectionBlocked:    priceProtectionBlocked,
+		PriceProtectionFloor:      money.FromDecimal(priceProtectionFloor),
 		IsActive:                  true,
 		LastSyncedAt:              &now,
 	}
@@ -1061,7 +1113,7 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		FulfillmentType:  constants.FulfillmentTypeUpstream,
 		ManualStockTotal: 0,
 		IsMapped:         true,
-		IsActive:         supported && source.IsAvailable(),
+		IsActive:         supported && source.IsAvailable() && !priceProtectionBlocked,
 		SortOrder:        0,
 	}
 
@@ -1079,7 +1131,7 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 			SpecValuesJSON:  jsonmap.JSON{},
 			PriceAmount:     money.FromDecimal(localPrice),
 			CostPriceAmount: money.FromDecimal(convertCurrency(sourcePrice, conn.ExchangeRate).Round(2)),
-			IsActive:        supported && source.IsAvailable(),
+			IsActive:        supported && source.IsAvailable() && !priceProtectionBlocked,
 			SortOrder:       0,
 		}
 		if err := repos.SKUs.Create(localSKU); err != nil {
@@ -1163,11 +1215,19 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	if mapping.PriceMode == "" {
 		mapping.PriceMode = mappingdomain.PriceModeAuto
 	}
+	mapping.PriceProtectionBlocked = false
+	mapping.PriceProtectionFloor = money.FromDecimal(decimal.Zero)
 	if shouldAutoSyncPrice(mapping, conn) {
 		localSKU.PriceAmount = money.FromDecimal(priceForMapping(conn, mapping, source.Price, decimal.Zero))
 	}
 	localSKU.CostPriceAmount = money.FromDecimal(convertCurrency(source.Price, conn.ExchangeRate).Round(2))
-	localSKU.IsActive = prodSellerProductSupported(source) && source.IsAvailable()
+	priceProtectionFloor, priceProtectionBlocked, protectionErr := priceBelowProtectionFloor(conn, source.Price, localSKU.PriceAmount.Decimal)
+	if protectionErr != nil {
+		return protectionErr
+	}
+	mapping.PriceProtectionFloor = money.FromDecimal(priceProtectionFloor)
+	mapping.PriceProtectionBlocked = priceProtectionBlocked
+	localSKU.IsActive = prodSellerProductSupported(source) && source.IsAvailable() && !priceProtectionBlocked
 	if err := s.skus.Update(localSKU); err != nil {
 		return err
 	}
@@ -1196,7 +1256,7 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	localProduct.Images = jsonslice.Strings(nonEmptySourceImage(source.ImageURL))
 	localProduct.IsMapped = true
 	localProduct.FulfillmentType = constants.FulfillmentTypeUpstream
-	localProduct.IsActive = prodSellerProductSupported(source) && source.IsAvailable()
+	localProduct.IsActive = prodSellerProductSupported(source) && source.IsAvailable() && !priceProtectionBlocked
 	if shouldAutoSyncPrice(mapping, conn) {
 		s.recalcProductPrice(localProduct)
 	} else if err := s.products.Update(localProduct); err != nil {

@@ -437,6 +437,10 @@ func (h *AdminHandler) UpdateProductMappingPricePolicy(c *gin.Context) {
 			ginutil.RespondError(c, response.CodeBadRequest, "error.invalid_price_policy", nil)
 			return
 		}
+		if errors.Is(err, mappingapp.ErrPriceBelowProtectionFloor) {
+			ginutil.RespondError(c, response.CodeBadRequest, "error.price_below_protection_floor", nil)
+			return
+		}
 		ginutil.RespondError(c, response.CodeInternal, "error.price_policy_update_failed", err)
 		return
 	}
@@ -469,6 +473,10 @@ func (h *AdminHandler) BatchUpdateProductMappingPricePolicy(c *gin.Context) {
 	}
 	updated, err := service.BatchSetPricePolicy(req.IDs, mode, price, multiplier)
 	if err != nil {
+		if errors.Is(err, mappingapp.ErrPriceBelowProtectionFloor) {
+			ginutil.RespondError(c, response.CodeBadRequest, "error.price_below_protection_floor", nil)
+			return
+		}
 		ginutil.RespondError(c, response.CodeInternal, "error.price_policy_update_failed", err)
 		return
 	}

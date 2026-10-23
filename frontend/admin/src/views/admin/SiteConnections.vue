@@ -43,6 +43,9 @@ const form = reactive({
   price_markup_percent: 0,
   price_rounding_mode: 'none',
   auto_sync_price: 'false',
+  payment_fee_rate: '0',
+  payment_fixed_fee: '0',
+  minimum_profit: '0',
 })
 const reapplyingId = ref<number | null>(null)
 
@@ -112,6 +115,9 @@ const resetForm = () => {
     price_markup_percent: 0,
     price_rounding_mode: 'none',
     auto_sync_price: 'false',
+    payment_fee_rate: '0',
+    payment_fixed_fee: '0',
+    minimum_profit: '0',
   })
 }
 
@@ -150,6 +156,9 @@ const openEditModal = (conn: AdminSiteConnection) => {
     price_markup_percent: conn.price_markup_percent ?? 0,
     price_rounding_mode: conn.price_rounding_mode || 'none',
     auto_sync_price: conn.auto_sync_price ? 'true' : 'false',
+    payment_fee_rate: String(conn.payment_fee_rate ?? '0'),
+    payment_fixed_fee: String(conn.payment_fixed_fee ?? '0'),
+    minimum_profit: String(conn.minimum_profit ?? '0'),
   })
   showModal.value = true
 }
@@ -177,6 +186,9 @@ const buildPayload = () => {
     price_markup_percent: Number(form.price_markup_percent) || 0,
     price_rounding_mode: form.price_rounding_mode,
     auto_sync_price: form.auto_sync_price === 'true',
+    payment_fee_rate: String(form.payment_fee_rate || '0').trim(),
+    payment_fixed_fee: String(form.payment_fixed_fee || '0').trim(),
+    minimum_profit: String(form.minimum_profit || '0').trim(),
   }
 }
 
@@ -471,6 +483,27 @@ onMounted(() => {
                   </SelectContent>
                 </Select>
                 <p class="mt-1 text-xs text-muted-foreground">{{ t('siteConnections.form.autoSyncPriceHint') }}</p>
+              </div>
+            </div>
+            <div class="mt-5 border-t border-border pt-4">
+              <h4 class="mb-3 text-sm font-medium text-foreground">{{ t('siteConnections.form.priceProtectionSection') }}</h4>
+              <p class="mb-3 text-xs text-muted-foreground">{{ t('siteConnections.form.priceProtectionHint') }}</p>
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.paymentFeeRate') }}</label>
+                  <div class="relative">
+                    <Input v-model="form.payment_fee_rate" type="number" step="0.01" min="0" max="99.99" placeholder="0" />
+                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.paymentFixedFee') }}</label>
+                  <Input v-model="form.payment_fixed_fee" type="number" step="0.000001" min="0" placeholder="0" />
+                </div>
+                <div>
+                  <label class="mb-1.5 block text-xs font-medium text-muted-foreground">{{ t('siteConnections.form.minimumProfit') }}</label>
+                  <Input v-model="form.minimum_profit" type="number" step="0.000001" min="0" placeholder="0" />
+                </div>
               </div>
             </div>
           </div>

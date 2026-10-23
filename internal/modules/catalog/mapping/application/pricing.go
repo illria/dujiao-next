@@ -1,12 +1,19 @@
 package application
 
-import "github.com/shopspring/decimal"
+import (
+	"errors"
+
+	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
+	"github.com/shopspring/decimal"
+)
 
 var (
 	hundred    = decimal.NewFromInt(100)
 	pointOne   = decimal.NewFromFloat(0.1)
 	roundScale = int32(2)
 )
+
+var ErrInvalidPriceProtection = errors.New("invalid price protection configuration")
 
 // convertCurrency 仅按汇率转换，不应用加价。
 // 用于计算成本价：上游价格 × 汇率 = 本地币种成本（不含加价利润）。
@@ -62,4 +69,38 @@ func CalculateMarkedUpPrice(upstreamPrice, markupPercent decimal.Decimal, roundi
 	default:
 		return result.Round(roundScale)
 	}
+}
+
+// CalculatePriceProtectionFloor 计算保证不亏损且达到最低利润时的最低售价。
+// paymentFeeRate 是按售价收取的百分比，因此需要反解售价：
+// 售价 × (1 - 手续费率) - 固定手续费 - 成本 >= 最低利润。
+func CalculatePriceProtectionFloor(cost, paymentFeeRate, paymentFixedFee, minimumProfit decimal.Decimal) (decimal.Decimal, error) {
+	if cost.IsNegative() || paymentFeeRate.IsNegative() || paymentFixedFee.IsNegative() || minimumProfit.IsNegative() {
+		return decimal.Zero, ErrInvalidPriceProtection
+	}
+	if paymentFeeRate.GreaterThanOrEqual(hundred) {
+		return decimal.Zero, ErrInvalidPriceProtection
+	}
+	denominator := decimal.NewFromInt(1).Sub(paymentFeeRate.Div(hundred))
+	if denominator.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero, ErrInvalidPriceProtection
+	}
+	return cost.Add(paymentFixedFee).Add(minimumProfit).Div(denominator), nil
+}
+
+// PriceProtectionFloorForUpstream 将上游成本换算成本地币种后计算最低保护价。
+func PriceProtectionFloorForUpstream(conn *siteconnectiondomain.Connection, upstreamPrice decimal.Decimal) (decimal.Decimal, error) {
+	if conn == nil {
+		return decimal.Zero, ErrInvalidPriceProtection
+	}
+	cost := convertCurrency(upstreamPrice, conn.ExchangeRate)
+	return CalculatePriceProtectionFloor(cost, conn.PaymentFeeRate, conn.PaymentFixedFee, conn.MinimumProfit)
+}
+
+func priceBelowProtectionFloor(conn *siteconnectiondomain.Connection, upstreamPrice, sellingPrice decimal.Decimal) (decimal.Decimal, bool, error) {
+	floor, err := PriceProtectionFloorForUpstream(conn, upstreamPrice)
+	if err != nil {
+		return decimal.Zero, true, err
+	}
+	return floor, sellingPrice.LessThan(floor), nil
 }
