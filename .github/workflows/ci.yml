@@ -75,7 +75,6 @@ jobs:
           if [[ -n "$unformatted" ]]; then
             echo "::error::The following Go files are not formatted:"
             printf '%s\n' "$unformatted"
-            gofmt -d $unformatted
             exit 1
           fi
 

@@ -190,7 +190,7 @@ func NewProdSellerAdapter(conn *siteconnectiondomain.Connection) *ProdSellerAdap
 		baseURL = ProdSellerDefaultBaseURL
 	}
 	return &ProdSellerAdapter{
-		baseURL:   baseURL,
+		baseURL: baseURL,
 		// ProdSeller 的密钥来源固定为服务端环境变量，连接记录只保留该变量名。
 		apiKeyEnv: ProdSellerAPIKeyEnv,
 		client:    &http.Client{Timeout: 10 * time.Second},

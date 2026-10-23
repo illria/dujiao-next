@@ -980,7 +980,7 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		UpstreamProductID:         0,
 		UpstreamProductExternalID: &externalIDRef,
 		UpstreamFulfillmentType:   prodSellerFulfillmentType(source.Delivery.Type),
-		UpstreamStatus:             mappingdomain.UpstreamStatusActive,
+		UpstreamStatus:            mappingdomain.UpstreamStatusActive,
 		UpstreamCurrency:          "USDT",
 		UpstreamPublicPrice:       money.FromDecimal(source.PublicPrice.Round(2)),
 		PriceMode:                 mappingdomain.PriceModeAuto,
@@ -991,21 +991,21 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 	slug := prodSellerSlug(connectionID, externalID)
 	supported := prodSellerProductSupported(source)
 	product := &productdomain.Product{
-		CategoryID:           categoryID,
-		Slug:                 slug,
-		TitleJSON:            prodSellerLocalizedText(source.Name),
-		DescriptionJSON:      prodSellerLocalizedText(source.Description),
-		ContentJSON:          prodSellerLocalizedText(source.Description),
-		PriceAmount:          money.FromDecimal(localPrice),
-		CostPriceAmount:      money.FromDecimal(convertCurrency(sourcePrice, conn.ExchangeRate).Round(2)),
-		Images:               jsonslice.Strings(nonEmptySourceImage(source.ImageURL)),
-		Tags:                 jsonslice.Strings([]string{"prodseller"}),
-		PurchaseType:         constants.ProductPurchaseMember,
-		FulfillmentType:      constants.FulfillmentTypeUpstream,
-		ManualStockTotal:     0,
-		IsMapped:             true,
-		IsActive:             false,
-		SortOrder:            0,
+		CategoryID:       categoryID,
+		Slug:             slug,
+		TitleJSON:        prodSellerLocalizedText(source.Name),
+		DescriptionJSON:  prodSellerLocalizedText(source.Description),
+		ContentJSON:      prodSellerLocalizedText(source.Description),
+		PriceAmount:      money.FromDecimal(localPrice),
+		CostPriceAmount:  money.FromDecimal(convertCurrency(sourcePrice, conn.ExchangeRate).Round(2)),
+		Images:           jsonslice.Strings(nonEmptySourceImage(source.ImageURL)),
+		Tags:             jsonslice.Strings([]string{"prodseller"}),
+		PurchaseType:     constants.ProductPurchaseMember,
+		FulfillmentType:  constants.FulfillmentTypeUpstream,
+		ManualStockTotal: 0,
+		IsMapped:         true,
+		IsActive:         false,
+		SortOrder:        0,
 	}
 	if !supported {
 		product.IsActive = false
@@ -1035,14 +1035,14 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		}
 		skuExternalID := externalID
 		if err := repos.SKUMappings.Create(&mappingdomain.SKUMapping{
-			ProductMappingID:       mapping.ID,
-			LocalSKUID:             localSKU.ID,
-			UpstreamSKUID:          0,
-			UpstreamSKUExternalID:  &skuExternalID,
-			UpstreamPrice:          money.FromDecimal(sourcePrice.Round(2)),
-			UpstreamStock:          prodSellerStock(source),
-			UpstreamIsActive:       source.InStock,
-			StockSyncedAt:          &now,
+			ProductMappingID:      mapping.ID,
+			LocalSKUID:            localSKU.ID,
+			UpstreamSKUID:         0,
+			UpstreamSKUExternalID: &skuExternalID,
+			UpstreamPrice:         money.FromDecimal(sourcePrice.Round(2)),
+			UpstreamStock:         prodSellerStock(source),
+			UpstreamIsActive:      source.InStock,
+			StockSyncedAt:         &now,
 		}); err != nil {
 			return fmt.Errorf("create sku mapping: %w", err)
 		}
@@ -1072,11 +1072,11 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	}
 	if len(localSKUs) == 0 {
 		newSKU := &productdomain.ProductSKU{
-			ProductID:       mapping.LocalProductID,
-			SKUCode:         upstream.DefaultExternalSKUCode,
-			SpecValuesJSON:  jsonmap.JSON{},
-			IsActive:        prodSellerProductSupported(source) && source.InStock,
-			SortOrder:       0,
+			ProductID:      mapping.LocalProductID,
+			SKUCode:        upstream.DefaultExternalSKUCode,
+			SpecValuesJSON: jsonmap.JSON{},
+			IsActive:       prodSellerProductSupported(source) && source.InStock,
+			SortOrder:      0,
 		}
 		if err := s.skus.Create(newSKU); err != nil {
 			return err
