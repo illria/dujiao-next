@@ -394,6 +394,9 @@ func VerifyCallback(cfg *Config, data *CallbackData) error {
 	if err := ValidateConfig(cfg); err != nil {
 		return err
 	}
+	if strings.TrimSpace(data.Signature) == "" {
+		return ErrSignatureInvalid
+	}
 	requiredFields := map[string]string{
 		"appId":           data.AppID,
 		"orderNo":         data.OrderNo,
@@ -406,7 +409,6 @@ func VerifyCallback(cfg *Config, data *CallbackData) error {
 		"status":          data.Status,
 		"createdAt":       data.CreatedAt,
 		"completedAt":     data.CompletedAt,
-		"signature":       data.Signature,
 	}
 	for field, value := range requiredFields {
 		if strings.TrimSpace(value) == "" {
