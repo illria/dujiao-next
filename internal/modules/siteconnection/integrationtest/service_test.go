@@ -1,6 +1,7 @@
 package siteconnection_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -150,6 +151,29 @@ func TestSiteConnectionServiceProdSellerRejectsCustomEnvironmentReference(t *tes
 		ApiKey:   "OTHER_PRODSELLER_KEY",
 	}); err == nil {
 		t.Fatal("expected ProdSeller to require PRODSELLER_API_KEY")
+	}
+}
+
+func TestSiteConnectionServiceRejectsInvalidPriceProtectionConfig(t *testing.T) {
+	repo := &siteConnectionRepoStub{}
+	svc := siteconnectionapp.NewService(repo, "test-secret-key", t.TempDir())
+
+	_, err := svc.Create(siteconnectionapp.CreateInput{
+		Name:           "ProdSeller",
+		Protocol:       constants.ConnectionProtocolProdSeller,
+		PaymentFeeRate: decimal.NewFromInt(100),
+	})
+	if !errors.Is(err, siteconnectioncontract.ErrInvalid) {
+		t.Fatalf("expected invalid protection config error, got %v", err)
+	}
+
+	_, err = svc.Create(siteconnectionapp.CreateInput{
+		Name:            "ProdSeller",
+		Protocol:        constants.ConnectionProtocolProdSeller,
+		PaymentFixedFee: decimal.NewFromInt(-1),
+	})
+	if !errors.Is(err, siteconnectioncontract.ErrInvalid) {
+		t.Fatalf("expected negative fixed fee error, got %v", err)
 	}
 }
 

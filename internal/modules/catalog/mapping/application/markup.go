@@ -38,6 +38,8 @@ func (s *Service) ReapplyMarkup(connectionID uint) (int, error) {
 		if mapping.PriceMode == mappingdomain.PriceModeManual {
 			continue
 		}
+		mapping.PriceProtectionBlocked = false
+		mapping.PriceProtectionFloor = money.FromDecimal(decimal.Zero)
 		skuMappings, err := s.skuMappings.ListByProductMapping(mapping.ID)
 		if err != nil {
 			continue
@@ -45,21 +47,38 @@ func (s *Service) ReapplyMarkup(connectionID uint) (int, error) {
 
 		for _, sm := range skuMappings {
 			newLocalPrice := priceForMapping(conn, &mapping, sm.UpstreamPrice.Decimal, decimal.Zero)
+			floor, belowFloor, err := priceBelowProtectionFloor(conn, sm.UpstreamPrice.Decimal, newLocalPrice)
+			if err != nil {
+				return updated, err
+			}
+			if floor.GreaterThan(mapping.PriceProtectionFloor.Decimal) {
+				mapping.PriceProtectionFloor = money.FromDecimal(floor)
+			}
+			if belowFloor {
+				mapping.PriceProtectionBlocked = true
+			}
 			localSKU, err := s.skus.GetByID(sm.LocalSKUID)
 			if err != nil || localSKU == nil {
 				continue
 			}
 			localSKU.PriceAmount = money.FromDecimal(newLocalPrice.Round(2))
 			localSKU.CostPriceAmount = money.FromDecimal(convertCurrency(sm.UpstreamPrice.Decimal, conn.ExchangeRate).Round(2)) // 成本价 = 上游价格 × 汇率（本地币种）
+			if belowFloor {
+				localSKU.IsActive = false
+			}
 			_ = s.skus.Update(localSKU)
 		}
 
 		// 更新 Product.PriceAmount
 		localProduct, err := s.products.GetByID(strconv.FormatUint(uint64(mapping.LocalProductID), 10))
 		if err == nil && localProduct != nil {
+			if mapping.PriceProtectionBlocked {
+				localProduct.IsActive = false
+			}
 			s.recalcProductPrice(localProduct)
 			updated++
 		}
+		_ = s.mappings.Update(&mapping)
 	}
 
 	return updated, nil
@@ -87,6 +106,7 @@ func (s *Service) recalcProductPrice(product *productdomain.Product) {
 }
 
 var ErrInvalidPricePolicy = errors.New("invalid product price policy")
+var ErrPriceBelowProtectionFloor = errors.New("price is below protection floor")
 
 // SetPricePolicy 为单个映射商品设置手动售价或自动加价倍数。
 // 所有计算使用 decimal；手动售价写入本地商品，自动模式在下一次同步时重算。
@@ -133,13 +153,48 @@ func (s *Service) SetPricePolicy(mappingID uint, mode string, manualPrice, multi
 		upstreamByLocalSKU[skuMapping.LocalSKUID] = skuMapping
 	}
 
+	normalizedManualPrice := manualPrice.Round(2)
+	protectionFloor := decimal.Zero
+	protectionBlocked := false
+	if mode == mappingdomain.PriceModeManual {
+		// 先完整校验，避免批量/多 SKU 更新时出现部分写入。
+		for _, localSKU := range localSKUs {
+			upstream, ok := upstreamByLocalSKU[localSKU.ID]
+			if !ok {
+				continue
+			}
+			floor, belowFloor, err := priceBelowProtectionFloor(conn, upstream.UpstreamPrice.Decimal, normalizedManualPrice)
+			if err != nil {
+				return err
+			}
+			if floor.GreaterThan(protectionFloor) {
+				protectionFloor = floor
+			}
+			if belowFloor {
+				return ErrPriceBelowProtectionFloor
+			}
+		}
+	}
+
 	for i := range localSKUs {
 		localSKU := &localSKUs[i]
 		if mode == mappingdomain.PriceModeManual {
-			localSKU.PriceAmount = money.FromDecimal(manualPrice.Round(2))
+			localSKU.PriceAmount = money.FromDecimal(normalizedManualPrice)
 		} else if upstream, ok := upstreamByLocalSKU[localSKU.ID]; ok {
-			localSKU.PriceAmount = money.FromDecimal(priceForMapping(conn, mapping, upstream.UpstreamPrice.Decimal, multiplier))
+			newPrice := priceForMapping(conn, mapping, upstream.UpstreamPrice.Decimal, multiplier)
+			floor, belowFloor, err := priceBelowProtectionFloor(conn, upstream.UpstreamPrice.Decimal, newPrice)
+			if err != nil {
+				return err
+			}
+			if floor.GreaterThan(protectionFloor) {
+				protectionFloor = floor
+			}
+			protectionBlocked = protectionBlocked || belowFloor
+			localSKU.PriceAmount = money.FromDecimal(newPrice)
 			localSKU.CostPriceAmount = money.FromDecimal(convertCurrency(upstream.UpstreamPrice.Decimal, conn.ExchangeRate).Round(2))
+			if belowFloor {
+				localSKU.IsActive = false
+			}
 		}
 		if err := s.skus.Update(localSKU); err != nil {
 			return err
@@ -151,6 +206,8 @@ func (s *Service) SetPricePolicy(mappingID uint, mode string, manualPrice, multi
 	if mode == mappingdomain.PriceModeAuto && multiplier.IsPositive() {
 		mapping.PriceMultiplier = multiplier
 	}
+	mapping.PriceProtectionBlocked = protectionBlocked
+	mapping.PriceProtectionFloor = money.FromDecimal(protectionFloor)
 	if err := s.mappings.Update(mapping); err != nil {
 		return err
 	}
@@ -161,12 +218,15 @@ func (s *Service) SetPricePolicy(mappingID uint, mode string, manualPrice, multi
 	}
 	if localProduct != nil {
 		if mode == mappingdomain.PriceModeManual {
-			localProduct.PriceAmount = money.FromDecimal(manualPrice.Round(2))
+			localProduct.PriceAmount = money.FromDecimal(normalizedManualPrice)
 			localProduct.CostPriceAmount = lowestMappedCost(localSKUs)
 			if err := s.products.Update(localProduct); err != nil {
 				return err
 			}
 		} else {
+			if protectionBlocked {
+				localProduct.IsActive = false
+			}
 			s.recalcProductPrice(localProduct)
 		}
 	}

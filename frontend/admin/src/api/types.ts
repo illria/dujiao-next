@@ -574,6 +574,9 @@ export interface AdminSiteConnection {
   price_markup_percent?: number
   price_rounding_mode?: string
   auto_sync_price?: boolean
+	payment_fee_rate?: number | string
+	payment_fixed_fee?: number | string
+	minimum_profit?: number | string
   created_at: string
   updated_at: string
 }
@@ -591,6 +594,8 @@ export interface AdminProductMapping {
   upstream_public_price?: number | string
   price_mode?: 'auto' | 'manual' | string
   price_multiplier?: number | string
+	price_protection_blocked?: boolean
+	price_protection_floor?: number | string
   upstream_sku_id: number
   upstream_product_name: string
   upstream_sku_name: string

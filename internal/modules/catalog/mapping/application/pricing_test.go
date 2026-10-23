@@ -103,3 +103,52 @@ func TestManualPriceModeDisablesAutomaticSync(t *testing.T) {
 		t.Fatal("auto price policy should sync")
 	}
 }
+
+func TestCalculatePriceProtectionFloorUsesExactDecimalMath(t *testing.T) {
+	cost := decimal.RequireFromString("10.00")
+	feeRate := decimal.RequireFromString("2.5")
+	fixedFee := decimal.RequireFromString("0.10")
+	minimumProfit := decimal.RequireFromString("0.50")
+
+	floor, err := CalculatePriceProtectionFloor(cost, feeRate, fixedFee, minimumProfit)
+	if err != nil {
+		t.Fatalf("CalculatePriceProtectionFloor returned error: %v", err)
+	}
+	want := decimal.RequireFromString("10.8717948717948718")
+	if !floor.Equal(want) {
+		t.Fatalf("protection floor = %s, want %s", floor, want)
+	}
+}
+
+func TestCalculatePriceProtectionFloorRejectsInvalidFeeRate(t *testing.T) {
+	if _, err := CalculatePriceProtectionFloor(decimal.NewFromInt(1), decimal.NewFromInt(100), decimal.Zero, decimal.Zero); err == nil {
+		t.Fatal("expected a 100%% fee rate to be rejected")
+	}
+	if _, err := CalculatePriceProtectionFloor(decimal.NewFromInt(1), decimal.NewFromInt(-1), decimal.Zero, decimal.Zero); err == nil {
+		t.Fatal("expected a negative fee rate to be rejected")
+	}
+}
+
+func TestPriceBelowProtectionFloorHandlesRoundingBoundary(t *testing.T) {
+	conn := &siteconnectiondomain.Connection{
+		ExchangeRate:   decimal.NewFromInt(1),
+		PaymentFeeRate: decimal.Zero,
+		MinimumProfit:  decimal.RequireFromString("0.01"),
+	}
+
+	_, below, err := priceBelowProtectionFloor(conn, decimal.RequireFromString("0.398"), decimal.RequireFromString("0.41"))
+	if err != nil {
+		t.Fatalf("priceBelowProtectionFloor returned error: %v", err)
+	}
+	if below {
+		t.Fatal("0.41 should satisfy the exact 0.408 protection floor")
+	}
+
+	_, below, err = priceBelowProtectionFloor(conn, decimal.RequireFromString("0.398"), decimal.RequireFromString("0.40"))
+	if err != nil {
+		t.Fatalf("priceBelowProtectionFloor returned error: %v", err)
+	}
+	if !below {
+		t.Fatal("0.40 should be below the exact 0.408 protection floor")
+	}
+}

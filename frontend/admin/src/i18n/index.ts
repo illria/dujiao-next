@@ -295,6 +295,11 @@ const messages = {
         roundingCeilTenth: '向上取整（0.1）',
         autoSyncPrice: '同步时自动更新价格',
         autoSyncPriceHint: '启用后，同步上游商品时将按加价比例自动更新本地售价',
+        priceProtectionSection: '价格保护',
+        priceProtectionHint: '售价低于成本、收款手续费和最低利润要求时，商品会自动下架。手续费率按售价计算，保护线会反解出最低售价。',
+        paymentFeeRate: '收款手续费率',
+        paymentFixedFee: '固定收款手续费',
+        minimumProfit: '最低利润',
       },
       actions: {
         enable: '启用',
@@ -332,6 +337,8 @@ const messages = {
       status: {
         active: '启用',
         inactive: '禁用',
+        abovePublicPrice: '售价高于公开价',
+        priceProtectionBlocked: '低于保护线，已下架',
       },
       upstreamStatus: {
         inactive: '上游已下架',
@@ -376,6 +383,7 @@ const messages = {
         multiplier: '加价倍数',
         multiplierPlaceholder: '例如 5；留空沿用连接设置',
         multiplierHint: '自动同步时按上游价格 × 汇率 × 倍数计算，使用定点小数。',
+        protectionHint: '手动售价低于保护线时会被拒绝；上游涨价使当前售价低于保护线时会自动下架。',
         submit: '保存价格策略',
         singleTitle: '设置单个商品价格',
         batchTitle: '批量设置价格',
@@ -399,6 +407,7 @@ const messages = {
         createdAt: '创建时间',
         updatedAt: '更新时间',
         fulfillmentType: '交付类型',
+        upstreamPublicPrice: '上游公开价',
       },
       import: {
         selectConnection: '选择连接',
@@ -4847,6 +4856,11 @@ const messages = {
         roundingCeilTenth: '向上取整（0.1）',
         autoSyncPrice: '同步時自動更新價格',
         autoSyncPriceHint: '啟用後，同步上游商品時將按加價比例自動更新本地售價',
+        priceProtectionSection: '價格保護',
+        priceProtectionHint: '售價低於成本、收款手續費和最低利潤要求時，商品會自動下架。手續費率按售價計算，保護線會反解出最低售價。',
+        paymentFeeRate: '收款手續費率',
+        paymentFixedFee: '固定收款手續費',
+        minimumProfit: '最低利潤',
       },
       actions: {
         enable: '啟用',
@@ -4884,6 +4898,8 @@ const messages = {
       status: {
         active: '啟用',
         inactive: '停用',
+        abovePublicPrice: '售價高於公開價',
+        priceProtectionBlocked: '低於保護線，已下架',
       },
       upstreamStatus: {
         inactive: '上游已下架',
@@ -4928,6 +4944,7 @@ const messages = {
         multiplier: '加價倍數',
         multiplierPlaceholder: '例如 5；留空沿用連接設定',
         multiplierHint: '自動同步時按上游價格 × 匯率 × 倍數計算，使用定點小數。',
+        protectionHint: '手動售價低於保護線時會被拒絕；上游漲價使目前售價低於保護線時會自動下架。',
         submit: '儲存價格策略',
         singleTitle: '設定單個商品價格',
         batchTitle: '批量設定價格',
@@ -4951,6 +4968,7 @@ const messages = {
         createdAt: '建立時間',
         updatedAt: '更新時間',
         fulfillmentType: '交付類型',
+        upstreamPublicPrice: '上游公開價',
       },
       import: {
         selectConnection: '選擇連接',
@@ -9399,6 +9417,11 @@ const messages = {
         roundingCeilTenth: 'Round up (0.1)',
         autoSyncPrice: 'Auto-update price on sync',
         autoSyncPriceHint: 'When enabled, local prices will be auto-updated with markup during sync',
+        priceProtectionSection: 'Price protection',
+        priceProtectionHint: 'Products are automatically unpublished when the selling price falls below cost, payment fees, and minimum profit. Percentage fees are calculated on the selling price.',
+        paymentFeeRate: 'Payment fee rate',
+        paymentFixedFee: 'Fixed payment fee',
+        minimumProfit: 'Minimum profit',
       },
       actions: {
         enable: 'Enable',
@@ -9436,6 +9459,8 @@ const messages = {
       status: {
         active: 'Active',
         inactive: 'Inactive',
+        abovePublicPrice: 'Price above public price',
+        priceProtectionBlocked: 'Below protection floor; unpublished',
       },
       upstreamStatus: {
         inactive: 'Delisted upstream',
@@ -9480,6 +9505,7 @@ const messages = {
         multiplier: 'Price multiplier',
         multiplierPlaceholder: 'e.g. 5; blank uses connection settings',
         multiplierHint: 'Auto sync uses upstream price × exchange rate × multiplier with fixed-point math.',
+        protectionHint: 'Manual prices below the protection floor are rejected; an upstream price increase that crosses the floor automatically unpublishes the product.',
         submit: 'Save price policy',
         singleTitle: 'Set product price',
         batchTitle: 'Batch set price',
@@ -9503,6 +9529,7 @@ const messages = {
         createdAt: 'Created',
         updatedAt: 'Updated',
         fulfillmentType: 'Fulfillment',
+        upstreamPublicPrice: 'Upstream public price',
       },
       import: {
         selectConnection: 'Select Connection',

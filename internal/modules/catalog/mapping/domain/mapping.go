@@ -36,6 +36,8 @@ type Mapping struct {
 	UpstreamPublicPrice     money.Amount    `gorm:"type:decimal(20,2);not null;default:0" json:"upstream_public_price"`
 	PriceMode               string          `gorm:"type:varchar(16);not null;default:'auto'" json:"price_mode"`    // auto/manual
 	PriceMultiplier         decimal.Decimal `gorm:"type:decimal(20,6);not null;default:0" json:"price_multiplier"` // 0 表示沿用连接定价
+	PriceProtectionBlocked  bool            `gorm:"not null;default:false" json:"price_protection_blocked"`
+	PriceProtectionFloor    money.Amount    `gorm:"type:decimal(20,2);not null;default:0" json:"price_protection_floor"`
 	IsActive                bool            `gorm:"not null;default:true" json:"is_active"`
 	LastSyncedAt            *time.Time      `json:"last_synced_at,omitempty"`
 	CreatedAt               time.Time       `gorm:"index" json:"created_at"`

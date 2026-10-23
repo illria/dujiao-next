@@ -48,6 +48,9 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 	if strings.TrimSpace(input.Name) == "" {
 		return nil, siteconnectioncontract.ErrInvalid
 	}
+	if err := validatePriceProtection(input.PaymentFeeRate, input.PaymentFixedFee, input.MinimumProfit); err != nil {
+		return nil, siteconnectioncontract.ErrInvalid
+	}
 
 	protocol := strings.TrimSpace(input.Protocol)
 	if protocol == "" {
@@ -115,6 +118,9 @@ func (s *Service) Create(input CreateInput) (*siteconnectiondomain.Connection, e
 		PriceMarkupPercent: decimal.NewFromFloat(input.PriceMarkupPercent),
 		PriceRoundingMode:  roundingMode,
 		AutoSyncPrice:      input.AutoSyncPrice,
+		PaymentFeeRate:     input.PaymentFeeRate,
+		PaymentFixedFee:    input.PaymentFixedFee,
+		MinimumProfit:      input.MinimumProfit,
 	}
 
 	if err := s.connRepo.Create(conn); err != nil {
@@ -137,6 +143,9 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	prevExchangeRate := conn.ExchangeRate
 	prevMarkupPercent := conn.PriceMarkupPercent
 	prevRoundingMode := conn.PriceRoundingMode
+	prevPaymentFeeRate := conn.PaymentFeeRate
+	prevPaymentFixedFee := conn.PaymentFixedFee
+	prevMinimumProfit := conn.MinimumProfit
 
 	if strings.TrimSpace(input.Name) != "" {
 		conn.Name = strings.TrimSpace(input.Name)
@@ -203,6 +212,18 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	if input.AutoSyncPrice != nil {
 		conn.AutoSyncPrice = *input.AutoSyncPrice
 	}
+	if input.PaymentFeeRate != nil {
+		conn.PaymentFeeRate = *input.PaymentFeeRate
+	}
+	if input.PaymentFixedFee != nil {
+		conn.PaymentFixedFee = *input.PaymentFixedFee
+	}
+	if input.MinimumProfit != nil {
+		conn.MinimumProfit = *input.MinimumProfit
+	}
+	if err := validatePriceProtection(conn.PaymentFeeRate, conn.PaymentFixedFee, conn.MinimumProfit); err != nil {
+		return nil, siteconnectioncontract.ErrInvalid
+	}
 
 	if err := s.connRepo.Update(conn); err != nil {
 		return nil, err
@@ -213,7 +234,10 @@ func (s *Service) Update(id uint, input UpdateInput) (*siteconnectiondomain.Conn
 	// 仅记录告警，用户仍可通过「重新应用加价」手动补救。
 	priceConfigChanged := !conn.ExchangeRate.Equal(prevExchangeRate) ||
 		!conn.PriceMarkupPercent.Equal(prevMarkupPercent) ||
-		conn.PriceRoundingMode != prevRoundingMode
+		conn.PriceRoundingMode != prevRoundingMode ||
+		!conn.PaymentFeeRate.Equal(prevPaymentFeeRate) ||
+		!conn.PaymentFixedFee.Equal(prevPaymentFixedFee) ||
+		!conn.MinimumProfit.Equal(prevMinimumProfit)
 	if priceConfigChanged && s.markupReapplier != nil {
 		if _, err := s.markupReapplier.ReapplyMarkup(conn.ID); err != nil {
 			logger.Warnw("reapply_markup_after_connection_update_failed",
@@ -354,4 +378,14 @@ func (s *Service) normalizeExchangeRate(rate float64) decimal.Decimal {
 		return decimal.NewFromInt(1)
 	}
 	return decimal.NewFromFloat(rate)
+}
+
+func validatePriceProtection(paymentFeeRate, paymentFixedFee, minimumProfit decimal.Decimal) error {
+	if paymentFeeRate.IsNegative() || paymentFixedFee.IsNegative() || minimumProfit.IsNegative() {
+		return siteconnectioncontract.ErrInvalid
+	}
+	if paymentFeeRate.GreaterThanOrEqual(decimal.NewFromInt(100)) {
+		return siteconnectioncontract.ErrInvalid
+	}
+	return nil
 }
