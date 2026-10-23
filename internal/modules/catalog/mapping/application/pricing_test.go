@@ -88,7 +88,7 @@ func TestPriceForMappingUsesExactDecimalMultiplier(t *testing.T) {
 		PriceRoundingMode:  "none",
 	}
 	mapping := &mappingdomain.Mapping{}
-	got := priceForMapping(conn, mapping, decimal.RequireFromString("0.398"), decimal.RequireFromInt(5))
+	got := priceForMapping(conn, mapping, decimal.RequireFromString("0.398"), decimal.NewFromInt(5))
 	if !got.Equal(decimal.RequireFromString("1.99")) {
 		t.Fatalf("priceForMapping = %s, want 1.99", got)
 	}
