@@ -246,12 +246,12 @@ func CreatePayment(ctx context.Context, cfg *Config, input CreateInput) (*Create
 	}
 
 	params := map[string]string{
-		"appId":          cfg.AppID,
+		"appId":           cfg.AppID,
 		"merchantOrderNo": merchantOrderNo,
-		"chainType":      chainType,
-		"fiatAmount":     amount.StringFixed(4),
-		"fiatCurrency":   fiatCurrency,
-		"notifyUrl":      notifyURL,
+		"chainType":       chainType,
+		"fiatAmount":      amount.StringFixed(4),
+		"fiatCurrency":    fiatCurrency,
+		"notifyUrl":       notifyURL,
 	}
 	signedParams := cloneStringMap(params)
 	if productName := strings.TrimSpace(input.ProductName); productName != "" {
