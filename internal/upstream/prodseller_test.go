@@ -28,7 +28,7 @@ func TestProdSellerReadOnlyEndpointsPreserveExternalIDAndNeverPOST(t *testing.T)
 		case "/v1/balance":
 			_, _ = w.Write([]byte(`{"telegramId":"123","username":"seller","balance":12.3456,"membership":"pro"}`))
 		case "/v1/products":
-			_, _ = w.Write([]byte(`{"products":[{"id":"66f1a9b4c7e8d90123456789","name":"Product","description":"Description","price":0.398,"publicPrice":0.5,"imageUrl":"https://cdn.example.test/p.png","delivery":{"type":"instant"},"sold":false,"inStock":true,"stock":7,"requiresEmailActivation":false}]}`))
+			_, _ = w.Write([]byte(`{"products":[{"id":"66f1a9b4c7e8d90123456789","name":"Product","description":"Description","price":0.398,"publicPrice":0.5,"imageUrl":"https://cdn.example.test/p.png","delivery":{"type":"instant"},"sold":3133,"inStock":true,"stock":7,"requiresEmailActivation":false}]}`))
 		case "/v1/products/66f1a9b4c7e8d90123456789":
 			_, _ = w.Write([]byte(`{"id":"66f1a9b4c7e8d90123456789","name":"Product","description":"Description","price":0.398,"publicPrice":0.5,"delivery":{"type":"instant"},"inStock":true,"stock":7,"requiresEmailActivation":false}`))
 		default:

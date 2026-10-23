@@ -87,7 +87,10 @@ type ProdSellerProduct struct {
 	PublicPrice             decimal.Decimal    `json:"publicPrice"`
 	ImageURL                string             `json:"imageUrl"`
 	Delivery                ProdSellerDelivery `json:"delivery"`
-	Sold                    bool               `json:"sold"`
+	// ProdSeller currently returns a numeric sold count (for example, 3133),
+	// while older fixtures/documentation used a boolean. Keep the raw JSON so
+	// either representation remains compatible; the sync path does not use it.
+	Sold                    json.RawMessage    `json:"sold"`
 	InStock                 bool               `json:"inStock"`
 	Stock                   *int               `json:"stock"`
 	RequiresEmailActivation bool               `json:"requiresEmailActivation"`
