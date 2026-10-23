@@ -98,10 +98,10 @@ type ExceptionAlerter interface {
 
 // Handler dispatches the shared synchronous callback endpoint to its provider protocol.
 type Handler struct {
-	service  Service
-	payments PaymentLookup
-	channels ChannelLookup
-	alerts   ExceptionAlerter
+	service   Service
+	payments  PaymentLookup
+	channels  ChannelLookup
+	alerts    ExceptionAlerter
 	rateLimit callbackRateLimiter
 }
 
