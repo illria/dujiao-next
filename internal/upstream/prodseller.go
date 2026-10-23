@@ -79,6 +79,9 @@ type ProdSellerDelivery struct {
 
 // ProdSellerProduct 是 ProdSeller /v1/products 的只读商品结构。
 // ID 保持字符串，不能转换为 uint，也不能截断。
+// ProdSeller currently returns a numeric sold count (for example, 3133),
+// while older fixtures/documentation used a boolean. Keep the raw JSON so
+// either representation remains compatible; the sync path does not use it.
 type ProdSellerProduct struct {
 	ID                      string             `json:"id"`
 	Name                    string             `json:"name"`
@@ -87,9 +90,6 @@ type ProdSellerProduct struct {
 	PublicPrice             decimal.Decimal    `json:"publicPrice"`
 	ImageURL                string             `json:"imageUrl"`
 	Delivery                ProdSellerDelivery `json:"delivery"`
-	// ProdSeller currently returns a numeric sold count (for example, 3133),
-	// while older fixtures/documentation used a boolean. Keep the raw JSON so
-	// either representation remains compatible; the sync path does not use it.
 	Sold                    json.RawMessage    `json:"sold"`
 	InStock                 bool               `json:"inStock"`
 	Stock                   *int               `json:"stock"`
