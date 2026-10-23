@@ -8,21 +8,21 @@ import (
 	"time"
 
 	"github.com/dujiao-next/internal/constants"
+	notificationcontract "github.com/dujiao-next/internal/modules/notification/contract"
+	orderdomain "github.com/dujiao-next/internal/modules/order/domain"
 	paymentcontract "github.com/dujiao-next/internal/modules/payment/contract"
 	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
 	"github.com/dujiao-next/internal/modules/payment/infrastructure/gateway/provider"
-	orderdomain "github.com/dujiao-next/internal/modules/order/domain"
-	notificationcontract "github.com/dujiao-next/internal/modules/notification/contract"
 	"github.com/dujiao-next/internal/shared/jsonmap"
 	"github.com/dujiao-next/internal/shared/money"
 	"github.com/shopspring/decimal"
 )
 
 type upayCallbackGatewayStub struct {
-	mu            sync.Mutex
-	queryCalls    int
-	callback      *paymentcontract.GatewayCallbackResult
-	query         *paymentcontract.GatewayQueryResult
+	mu         sync.Mutex
+	queryCalls int
+	callback   *paymentcontract.GatewayCallbackResult
+	query      *paymentcontract.GatewayQueryResult
 }
 
 func (g *upayCallbackGatewayStub) Type() string { return constants.PaymentProviderUpay + ":test" }
@@ -107,9 +107,9 @@ func upayFactsPayment() *paymentdomain.Payment {
 		ProviderPayload: jsonmap.JSON{
 			paymentcontract.GatewayPayloadUpayFiatAmount:     "10.50",
 			paymentcontract.GatewayPayloadUpayFiatCurrency:   "USD",
-			paymentcontract.GatewayPayloadUpayCryptoAmount:    "8.5065",
+			paymentcontract.GatewayPayloadUpayCryptoAmount:   "8.5065",
 			paymentcontract.GatewayPayloadUpayProviderCrypto: "8.5065",
-			paymentcontract.GatewayPayloadUpayExchangeRate:    "1.2345",
+			paymentcontract.GatewayPayloadUpayExchangeRate:   "1.2345",
 			paymentcontract.GatewayPayloadUpayCryptoCurrency: "USDT",
 		},
 	}
@@ -140,7 +140,7 @@ func upayCallbackInput(status, actualCrypto, currency string) PaymentCallbackInp
 		Currency: currency,
 		Amount:   money.FromDecimal(decimal.RequireFromString("10.50")),
 		Payload: jsonmap.JSON{
-			paymentcontract.GatewayPayloadUpayActualCrypto: actualCrypto,
+			paymentcontract.GatewayPayloadUpayActualCrypto:   actualCrypto,
 			paymentcontract.GatewayPayloadUpayProviderCrypto: actualCrypto,
 		},
 	}
@@ -186,29 +186,29 @@ func TestValidateUpayCallbackFactsKeepsExpiredAndPendingOutOfPaidPath(t *testing
 func TestUpayPaymentCallbackReplayIsIdempotent(t *testing.T) {
 	svc, db := setupPaymentServiceWalletTest(t)
 	channel := &paymentdomain.PaymentChannel{
-		Name: "UPay test",
-		ProviderType: constants.PaymentProviderUpay,
-		ChannelType: constants.PaymentChannelTypeUsdtTrc20,
+		Name:            "UPay test",
+		ProviderType:    constants.PaymentProviderUpay,
+		ChannelType:     constants.PaymentChannelTypeUsdtTrc20,
 		InteractionMode: constants.PaymentInteractionRedirect,
-		ConfigJSON: jsonmap.JSON{},
-		IsActive: true,
-		FeeRate: money.FromDecimal(decimal.Zero),
-		FixedFee: money.FromDecimal(decimal.Zero),
-		CreatedAt: testNow(),
-		UpdatedAt: testNow(),
+		ConfigJSON:      jsonmap.JSON{},
+		IsActive:        true,
+		FeeRate:         money.FromDecimal(decimal.Zero),
+		FixedFee:        money.FromDecimal(decimal.Zero),
+		CreatedAt:       testNow(),
+		UpdatedAt:       testNow(),
 	}
 	if err := db.Create(channel).Error; err != nil {
 		t.Fatalf("create channel: %v", err)
 	}
 	order := &orderdomain.Order{
-		OrderNo: "DJUPAYTEST001",
-		Status: constants.OrderStatusPendingPayment,
-		Currency: "USD",
-		OriginalAmount: money.FromDecimal(decimal.RequireFromString("10.50")),
-		TotalAmount: money.FromDecimal(decimal.RequireFromString("10.50")),
+		OrderNo:          "DJUPAYTEST001",
+		Status:           constants.OrderStatusPendingPayment,
+		Currency:         "USD",
+		OriginalAmount:   money.FromDecimal(decimal.RequireFromString("10.50")),
+		TotalAmount:      money.FromDecimal(decimal.RequireFromString("10.50")),
 		OnlinePaidAmount: money.FromDecimal(decimal.RequireFromString("10.50")),
-		CreatedAt: testNow(),
-		UpdatedAt: testNow(),
+		CreatedAt:        testNow(),
+		UpdatedAt:        testNow(),
 	}
 	if err := db.Create(order).Error; err != nil {
 		t.Fatalf("create order: %v", err)
@@ -277,7 +277,7 @@ func TestHandleSyncCallbackQueriesUPayBeforeMarkingPaid(t *testing.T) {
 			Amount:      money.FromDecimal(decimal.RequireFromString("999.99")),
 			Currency:    "USDT",
 			Payload: jsonmap.JSON{
-				paymentcontract.GatewayPayloadUpayActualCrypto:    "0.0001",
+				paymentcontract.GatewayPayloadUpayActualCrypto:   "0.0001",
 				paymentcontract.GatewayPayloadUpayProviderCrypto: "0.0001",
 			},
 		},
@@ -287,7 +287,7 @@ func TestHandleSyncCallbackQueriesUPayBeforeMarkingPaid(t *testing.T) {
 			Amount:      money.FromDecimal(decimal.RequireFromString("10.50")),
 			Currency:    "USDT",
 			Payload: jsonmap.JSON{
-				paymentcontract.GatewayPayloadUpayActualCrypto:    "8.5065",
+				paymentcontract.GatewayPayloadUpayActualCrypto:   "8.5065",
 				paymentcontract.GatewayPayloadUpayProviderCrypto: "8.5065",
 			},
 		},
