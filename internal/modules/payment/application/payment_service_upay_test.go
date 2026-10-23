@@ -266,6 +266,71 @@ func TestUpayPaymentCallbackReplayIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUpayCallbackRequiresMatchingOpenOrder(t *testing.T) {
+	svc, db := setupPaymentServiceWalletTest(t)
+	now := testNow()
+	channel := &paymentdomain.PaymentChannel{
+		Name:            "UPay order binding test",
+		ProviderType:    constants.PaymentProviderUpay,
+		ChannelType:     constants.PaymentChannelTypeUsdtTrc20,
+		InteractionMode: constants.PaymentInteractionRedirect,
+		ConfigJSON:      jsonmap.JSON{},
+		IsActive:        true,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := db.Create(channel).Error; err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+	order := &orderdomain.Order{
+		OrderNo:          "DJUPAYBOUND001",
+		Status:           constants.OrderStatusPendingPayment,
+		Currency:         "USD",
+		OriginalAmount:   money.FromDecimal(decimal.RequireFromString("10.50")),
+		TotalAmount:      money.FromDecimal(decimal.RequireFromString("10.50")),
+		OnlinePaidAmount: money.FromDecimal(decimal.RequireFromString("10.50")),
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}
+	if err := db.Create(order).Error; err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	payment := upayFactsPayment()
+	payment.OrderID = order.ID
+	payment.ChannelID = channel.ID
+	payment.ChannelType = channel.ChannelType
+	payment.InteractionMode = channel.InteractionMode
+	payment.ProviderRef = "UP-ORDER-BOUND"
+	payment.Amount = money.FromDecimal(decimal.RequireFromString("10.50"))
+	if err := db.Create(payment).Error; err != nil {
+		t.Fatalf("create payment: %v", err)
+	}
+
+	input := upayCallbackInput(constants.PaymentStatusSuccess, "8.5065", "USDT")
+	input.PaymentID = payment.ID
+	input.ChannelID = channel.ID
+	input.ProviderRef = payment.ProviderRef
+	input.OrderNo = "OTHER-MERCHANT-ORDER"
+	if _, err := svc.HandleCallback(input); !errors.Is(err, ErrPaymentInvalid) {
+		t.Fatalf("mismatched merchant order error = %v, want invalid payment", err)
+	}
+
+	if err := db.Model(&orderdomain.Order{}).Where("id = ?", order.ID).Update("status", constants.OrderStatusPaid).Error; err != nil {
+		t.Fatalf("close order: %v", err)
+	}
+	input.OrderNo = payment.GatewayOrderNo
+	if _, err := svc.HandleCallback(input); !errors.Is(err, ErrPaymentManualReview) {
+		t.Fatalf("closed order callback error = %v, want manual review", err)
+	}
+	var stored paymentdomain.Payment
+	if err := db.First(&stored, payment.ID).Error; err != nil {
+		t.Fatalf("reload payment: %v", err)
+	}
+	if stored.Status != constants.PaymentStatusPending {
+		t.Fatalf("closed order callback changed payment status to %s", stored.Status)
+	}
+}
+
 func TestHandleSyncCallbackQueriesUPayBeforeMarkingPaid(t *testing.T) {
 	svc, db := setupPaymentServiceWalletTest(t)
 	registry, ok := svc.paymentProviderRegistry.(*provider.Registry)
