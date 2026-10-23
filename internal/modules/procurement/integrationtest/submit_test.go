@@ -7,13 +7,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	orderdomain "github.com/dujiao-next/internal/modules/order/domain"
-
-	mappingdomain "github.com/dujiao-next/internal/modules/catalog/mapping/domain"
-
 	"github.com/dujiao-next/internal/constants"
+	mappingdomain "github.com/dujiao-next/internal/modules/catalog/mapping/domain"
+	orderdomain "github.com/dujiao-next/internal/modules/order/domain"
 	procurementcontract "github.com/dujiao-next/internal/modules/procurement/contract"
 	siteconnectionapp "github.com/dujiao-next/internal/modules/siteconnection/application"
+	"github.com/dujiao-next/internal/shared/jsonmap"
 )
 
 // ── SubmitToUpstream tests ──
@@ -178,6 +177,107 @@ func TestSubmitToUpstream_RetryableError_Retries(t *testing.T) {
 	}
 	if updatedProc.RetryCount != 1 {
 		t.Errorf("expected retry_count=1, got %d", updatedProc.RetryCount)
+	}
+}
+
+func TestSubmitToUpstream_SMMFailureBecomesUnknownWithoutRollbackOrRetry(t *testing.T) {
+	t.Setenv(constants.ConnectionSecretRefSMMPanel, "fixture")
+	t.Setenv("SMMPANEL_ORDERING_ENABLED", "true")
+	db := setupProcurementTestDB(t)
+
+	order := createProcTestOrder(t, db, "PROC-SMM-UNKNOWN-001", constants.OrderStatusFulfilling, constants.FulfillmentTypeUpstream)
+	var item orderdomain.OrderItem
+	if err := db.Where("order_id = ?", order.ID).First(&item).Error; err != nil {
+		t.Fatalf("load order item: %v", err)
+	}
+	item.Quantity = 1000
+	item.ManualFormSubmissionJSON = jsonmap.JSON{"link": "https://example.com/post/1"}
+	item.UpstreamRateSnapshot = "10.85"
+	item.UpstreamPricingUnit = constants.PricingUnitPer1000
+	item.UpstreamCostSnapshot = "10.85"
+	item.UpstreamSellSnapshot = "21.70"
+	if err := db.Save(&item).Error; err != nil {
+		t.Fatalf("save SMM order snapshot: %v", err)
+	}
+
+	productMapping := &mappingdomain.Mapping{
+		ConnectionID: 1, LocalProductID: 1, UpstreamProductID: 36,
+		UpstreamRateText: "10.85", PricingUnit: constants.PricingUnitPer1000,
+		UpstreamServiceType: "Default", MinQuantity: 500, MaxQuantity: 200000,
+		IsOrderable: true, IsActive: true,
+	}
+	if err := db.Create(productMapping).Error; err != nil {
+		t.Fatalf("create product mapping: %v", err)
+	}
+	if err := db.Create(&mappingdomain.SKUMapping{
+		ProductMappingID: productMapping.ID, LocalSKUID: 1, UpstreamSKUID: 36,
+		UpstreamRateText: "10.85", PricingUnit: constants.PricingUnitPer1000,
+		UpstreamIsActive: true, UpstreamStock: -1,
+	}).Error; err != nil {
+		t.Fatalf("create SMM SKU mapping: %v", err)
+	}
+
+	servicesCalls, addCalls := 0, 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Form.Get("action") {
+		case "services":
+			servicesCalls++
+			_, _ = w.Write([]byte(`[{"service":"36","name":"Telegram","type":"Default","rate":"10.85","min":"500","max":"200000"}]`))
+		case "add":
+			addCalls++
+			w.WriteHeader(http.StatusGatewayTimeout)
+			_, _ = w.Write([]byte(`{"error":"gateway timeout"}`))
+		default:
+			t.Fatalf("unexpected action %q", r.Form.Get("action"))
+		}
+	}))
+	defer server.Close()
+
+	connSvc := newTestSiteConnectionService(db, "test-key", t.TempDir())
+	conn, err := connSvc.Create(siteconnectionapp.CreateInput{
+		Name: "test-smm", BaseURL: server.URL,
+		Protocol: constants.ConnectionProtocolSMMPanel,
+		SourceCurrency: "USD", SourceToUSDT: "1",
+		MarkupMultiplier: "2", MinimumOrderAmountUSDT: "1",
+		DefaultPricingUnit: constants.PricingUnitPer1000,
+	})
+	if err != nil {
+		t.Fatalf("create SMM connection: %v", err)
+	}
+	proc := createTestProcurementOrder(t, db, conn.ID, order.ID, order.OrderNo, constants.ProcurementStatusPending)
+	if err := db.Model(proc).Updates(map[string]interface{}{
+		"upstream_rate_snapshot": "10.85",
+		"upstream_pricing_unit":  constants.PricingUnitPer1000,
+		"upstream_cost_snapshot": "10.85",
+		"upstream_sell_snapshot": "21.70",
+	}).Error; err != nil {
+		t.Fatalf("save procurement snapshot: %v", err)
+	}
+
+	if err := newTestProcurementService(db, connSvc).SubmitToUpstream(proc.ID); err != nil {
+		t.Fatalf("SubmitToUpstream: %v", err)
+	}
+
+	var updatedProc ProcurementOrder
+	if err := db.First(&updatedProc, proc.ID).Error; err != nil {
+		t.Fatalf("reload procurement order: %v", err)
+	}
+	var updatedOrder orderdomain.Order
+	if err := db.First(&updatedOrder, order.ID).Error; err != nil {
+		t.Fatalf("reload local order: %v", err)
+	}
+	if updatedProc.Status != constants.ProcurementStatusUnknown || updatedProc.RetryCount != 0 || updatedProc.NextRetryAt != nil {
+		t.Fatalf("expected unknown without retry, got status=%q retries=%d next=%v", updatedProc.Status, updatedProc.RetryCount, updatedProc.NextRetryAt)
+	}
+	if updatedOrder.Status != constants.OrderStatusFulfilling {
+		t.Fatalf("SMM unknown outcome must not roll local order back, got %q", updatedOrder.Status)
+	}
+	if servicesCalls != 1 || addCalls != 1 {
+		t.Fatalf("expected one preflight and one non-retried add, services=%d add=%d", servicesCalls, addCalls)
 	}
 }
 

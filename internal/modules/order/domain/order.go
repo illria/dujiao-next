@@ -59,6 +59,10 @@ func (Order) TableName() string {
 func (o *Order) StripCostPrice() {
 	for i := range o.Items {
 		o.Items[i].CostPrice = money.Amount{}
+		o.Items[i].UpstreamRateSnapshot = ""
+		o.Items[i].UpstreamPricingUnit = ""
+		o.Items[i].UpstreamCostSnapshot = ""
+		o.Items[i].UpstreamSellSnapshot = ""
 	}
 	for i := range o.Children {
 		o.Children[i].StripCostPrice()

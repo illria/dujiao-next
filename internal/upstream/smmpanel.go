@@ -41,10 +41,18 @@ var (
 	ErrSMMPanelRetryable = errors.New("smm panel request is retryable")
 	// ErrSMMPanelInvalidRequest 表示请求或响应格式不合法。
 	ErrSMMPanelInvalidRequest = errors.New("smm panel request is invalid")
-	// ErrSMMPanelReadOnly 表示步骤一明确禁用的写入或订单接口。
-	ErrSMMPanelReadOnly        = errors.New("smm panel write operation is disabled")
-	ErrSMMPanelServiceNotFound = errors.New("smm panel service not found")
+	// ErrSMMPanelReadOnly 表示未显式开启真实 action=add。
+	ErrSMMPanelReadOnly             = errors.New("smm panel write operation is disabled")
+	ErrSMMPanelServiceNotFound      = errors.New("smm panel service not found")
+	ErrSMMPanelLinkInvalid          = errors.New("smm panel target link is invalid")
+	ErrSMMPanelSnapshotMissing      = errors.New("smm panel price snapshot is missing")
+	ErrSMMPanelPriceChanged         = errors.New("smm panel price changed after snapshot")
+	ErrSMMPanelUnprofitable         = errors.New("smm panel order is no longer profitable")
+	ErrSMMPanelOrderUnknown         = errors.New("smm panel order submission outcome is unknown")
+	ErrSMMPanelPricingUnavailable   = errors.New("smm panel pricing configuration is unavailable")
 )
+
+const smmPanelOrderingEnabledEnv = "SMMPANEL_ORDERING_ENABLED"
 
 // SMMPanelAPIError 是 SMM Panel HTTP 错误的脱敏结构。
 // 不保存或回显响应正文，避免请求体、账户信息或其他敏感字段进入日志。
@@ -74,15 +82,21 @@ type SMMPanelBalance struct {
 	Currency string `json:"currency"`
 }
 
-// SMMPanelAdapter 只实现 balance 和 services 两个只读 action。
-// API Key 只存在内存中，来源是 SecretRef 指向的环境变量；连接模型和数据库不保存真实 Key。
+// SMMPanelAdapter 读取 balance/services，并在显式开启 SMMPANEL_ORDERING_ENABLED
+// 后支持 add/status。API Key 只存在内存中，来源是 SecretRef 指向的环境变量；
+// 连接模型和数据库不保存真实 Key。
 type SMMPanelAdapter struct {
-	baseURL        string
-	secretRef      string
-	apiKey         string
-	sourceCurrency string
-	uploadsDir     string
-	client         *http.Client
+	baseURL               string
+	secretRef             string
+	apiKey                string
+	sourceCurrency        string
+	sourceToUSDT          decimal.Decimal
+	exchangeRateBufferBPS int
+	markupMultiplier      decimal.Decimal
+	minimumOrderAmountUSDT decimal.Decimal
+	orderingEnabled       bool
+	uploadsDir            string
+	client                *http.Client
 }
 
 var _ Adapter = (*SMMPanelAdapter)(nil)
@@ -109,13 +123,34 @@ func NewSMMPanelAdapter(conn *siteconnectiondomain.Connection, uploadsDir string
 		baseURL = smmPanelDefaultBaseURL
 	}
 
+	sourceToUSDT := decimal.Zero
+	if parsed, parseErr := decimal.NewFromString(strings.TrimSpace(conn.SourceToUSDT)); parseErr == nil {
+		sourceToUSDT = parsed
+	}
+	markupMultiplier := decimal.NewFromInt(2)
+	if parsed, parseErr := decimal.NewFromString(strings.TrimSpace(conn.MarkupMultiplier)); parseErr == nil && parsed.GreaterThanOrEqual(decimal.NewFromInt(1)) {
+		markupMultiplier = parsed
+	} else if strings.TrimSpace(conn.MarkupMultiplier) != "" {
+		markupMultiplier = decimal.Zero
+	}
+	minimumOrderAmountUSDT := decimal.NewFromInt(1)
+	if parsed, parseErr := decimal.NewFromString(strings.TrimSpace(conn.MinimumOrderAmountUSDT)); parseErr == nil && parsed.GreaterThan(decimal.Zero) {
+		minimumOrderAmountUSDT = parsed
+	} else if strings.TrimSpace(conn.MinimumOrderAmountUSDT) != "" {
+		minimumOrderAmountUSDT = decimal.Zero
+	}
 	return &SMMPanelAdapter{
-		baseURL:        baseURL,
-		secretRef:      secretRef,
-		apiKey:         apiKey,
-		sourceCurrency: strings.TrimSpace(conn.SourceCurrency),
-		uploadsDir:     uploadsDir,
-		client:         &http.Client{Timeout: smmPanelHTTPTimeout},
+		baseURL:                baseURL,
+		secretRef:              secretRef,
+		apiKey:                 apiKey,
+		sourceCurrency:         strings.TrimSpace(conn.SourceCurrency),
+		sourceToUSDT:           sourceToUSDT,
+		exchangeRateBufferBPS:  conn.ExchangeRateBufferBPS,
+		markupMultiplier:       markupMultiplier,
+		minimumOrderAmountUSDT: minimumOrderAmountUSDT,
+		orderingEnabled:        smmPanelOrderingEnabled(),
+		uploadsDir:             uploadsDir,
+		client:                 &http.Client{Timeout: smmPanelHTTPTimeout},
 	}, nil
 }
 
@@ -210,14 +245,97 @@ func (a *SMMPanelAdapter) ListCategories(context.Context) (*CategoryListResult, 
 	return &CategoryListResult{Supported: false, Categories: []UpstreamCategory{}}, nil
 }
 
-// CreateOrder 在步骤一永久禁用，避免误发真实 action=add。
-func (a *SMMPanelAdapter) CreateOrder(context.Context, CreateUpstreamOrderReq) (*CreateUpstreamOrderResp, error) {
-	return nil, ErrSMMPanelReadOnly
+// CreateOrder 在 action=add 前重新读取 services，核对服务、数量、费率和成本快照。
+// 真实写入默认关闭；开启后，add 的任何网络/超时/5xx 结果都返回
+// ErrSMMPanelOrderUnknown，调用方不得自动重试。
+func (a *SMMPanelAdapter) CreateOrder(ctx context.Context, req CreateUpstreamOrderReq) (*CreateUpstreamOrderResp, error) {
+	if !a.orderingEnabled {
+		return nil, ErrSMMPanelReadOnly
+	}
+	if err := validateSMMPanelOrderRequest(req); err != nil {
+		return nil, err
+	}
+	service, err := a.GetProduct(ctx, req.SKUID)
+	if err != nil {
+		return nil, err
+	}
+	if !service.Orderable || !strings.EqualFold(strings.TrimSpace(service.ServiceType), "default") {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "service_not_orderable", ErrorMessage: "service is not orderable"}, nil
+	}
+	if service.MinQuantity > 0 && req.Quantity < service.MinQuantity {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "quantity_below_upstream_min", ErrorMessage: "quantity is below the upstream minimum"}, nil
+	}
+	if service.MaxQuantity > 0 && req.Quantity > service.MaxQuantity {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "quantity_above_upstream_max", ErrorMessage: "quantity is above the upstream maximum"}, nil
+	}
+
+	currentCost, err := a.calculateSMMCost(service.UpstreamRate, req.Quantity, service.PricingUnit)
+	if err != nil {
+		return nil, err
+	}
+	currentSell := ceilSMMPanelCent(currentCost.Mul(a.markupMultiplier))
+	if currentSell.LessThan(a.minimumOrderAmountUSDT) {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "minimum_order_amount_not_met", ErrorMessage: "quantity does not reach the minimum order amount"}, nil
+	}
+	currentPricingUnit := strings.TrimSpace(service.PricingUnit)
+	if currentPricingUnit == "" {
+		currentPricingUnit = constants.PricingUnitPer1000
+	}
+	snapshotRate, snapshotRateErr := decimal.NewFromString(strings.TrimSpace(req.SnapshotRate))
+	snapshotPricingUnit := strings.TrimSpace(req.SnapshotPricingUnit)
+	if snapshotRateErr != nil || snapshotRate.LessThanOrEqual(decimal.Zero) || snapshotPricingUnit == "" {
+		return nil, ErrSMMPanelSnapshotMissing
+	}
+	if snapshotPricingUnit != currentPricingUnit {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "smm_pricing_unit_changed", ErrorMessage: "latest pricing unit differs from the order snapshot"}, nil
+	}
+	snapshotCost, snapshotErr := decimal.NewFromString(strings.TrimSpace(req.SnapshotCost))
+	if snapshotErr != nil || snapshotCost.IsNegative() {
+		return nil, ErrSMMPanelSnapshotMissing
+	}
+	snapshotSell, snapshotErr := decimal.NewFromString(strings.TrimSpace(req.SnapshotSell))
+	if snapshotErr != nil || snapshotSell.LessThanOrEqual(decimal.Zero) {
+		return nil, ErrSMMPanelSnapshotMissing
+	}
+	if currentCost.GreaterThan(snapshotCost) {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "smm_cost_changed", ErrorMessage: "latest cost exceeds the order snapshot"}, nil
+	}
+	if snapshotSell.LessThanOrEqual(currentCost) {
+		return &CreateUpstreamOrderResp{OK: false, ErrorCode: "smm_unprofitable", ErrorMessage: "latest cost is not profitable"}, nil
+	}
+
+	link, _ := req.ManualFormData["link"].(string)
+	link = strings.TrimSpace(link)
+	var raw json.RawMessage
+	if err := a.postAction(ctx, "add", url.Values{
+		"service":  []string{strconv.FormatUint(uint64(req.SKUID), 10)},
+		"link":     []string{link},
+		"quantity": []string{strconv.Itoa(req.Quantity)},
+	}, &raw); err != nil {
+		return nil, errors.Join(ErrSMMPanelOrderUnknown, err)
+	}
+	result, err := decodeSMMPanelCreateOrder(raw, a.sourceCurrency)
+	if err != nil {
+		// A successful HTTP response can still be truncated or malformed after
+		// the provider has accepted the order. Without an idempotency key it is
+		// safer to preserve the unknown outcome than to submit again.
+		return nil, errors.Join(ErrSMMPanelOrderUnknown, err)
+	}
+	return result, nil
 }
 
-// GetOrder 在步骤一禁用，后续履约阶段另行实现。
-func (a *SMMPanelAdapter) GetOrder(context.Context, uint) (*UpstreamOrderDetail, error) {
-	return nil, ErrSMMPanelReadOnly
+// GetOrder 读取 SMM action=status，不包含任何写操作。
+func (a *SMMPanelAdapter) GetOrder(ctx context.Context, orderID uint) (*UpstreamOrderDetail, error) {
+	if orderID == 0 {
+		return nil, ErrSMMPanelInvalidRequest
+	}
+	var raw json.RawMessage
+	if err := a.postAction(ctx, "status", url.Values{
+		"order": []string{strconv.FormatUint(uint64(orderID), 10)},
+	}, &raw); err != nil {
+		return nil, err
+	}
+	return decodeSMMPanelOrderStatus(raw, orderID, a.sourceCurrency)
 }
 
 // CancelOrder 在步骤一禁用，后续履约阶段另行实现。
@@ -228,6 +346,147 @@ func (a *SMMPanelAdapter) CancelOrder(context.Context, uint) error {
 // DownloadImage 不主动下载 SMM Panel 的第三方图片。
 func (a *SMMPanelAdapter) DownloadImage(context.Context, string) (string, error) {
 	return "", ErrSMMPanelReadOnly
+}
+
+func smmPanelOrderingEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(smmPanelOrderingEnabledEnv))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSMMPanelOrderRequest(req CreateUpstreamOrderReq) error {
+	if req.SKUID == 0 || req.Quantity <= 0 {
+		return ErrSMMPanelInvalidRequest
+	}
+	rawLink, ok := req.ManualFormData["link"]
+	link, linkOK := rawLink.(string)
+	if !ok || !linkOK {
+		return ErrSMMPanelLinkInvalid
+	}
+	link = strings.TrimSpace(link)
+	if link == "" || len(link) > 2048 || strings.ContainsAny(link, "\r\n\t ") {
+		return ErrSMMPanelLinkInvalid
+	}
+	parsed, err := url.ParseRequestURI(link)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ErrSMMPanelLinkInvalid
+	}
+	return nil
+}
+
+func (a *SMMPanelAdapter) calculateSMMCost(rateText string, quantity int, pricingUnit string) (decimal.Decimal, error) {
+	if strings.TrimSpace(a.sourceCurrency) == "" || a.sourceToUSDT.LessThanOrEqual(decimal.Zero) || a.exchangeRateBufferBPS < 0 || a.markupMultiplier.LessThan(decimal.NewFromInt(1)) || a.minimumOrderAmountUSDT.LessThanOrEqual(decimal.Zero) {
+		return decimal.Zero, ErrSMMPanelPricingUnavailable
+	}
+	rate, err := decimal.NewFromString(strings.TrimSpace(rateText))
+	if err != nil || rate.LessThanOrEqual(decimal.Zero) || quantity <= 0 {
+		return decimal.Zero, ErrSMMPanelInvalidRequest
+	}
+	rawCost := rate
+	switch strings.TrimSpace(pricingUnit) {
+	case "", constants.PricingUnitPer1000:
+		rawCost = rate.Mul(decimal.NewFromInt(int64(quantity))).Div(decimal.NewFromInt(1000))
+	case constants.PricingUnitPerUnit:
+		rawCost = rate.Mul(decimal.NewFromInt(int64(quantity)))
+	case constants.PricingUnitPerOrder:
+	default:
+		return decimal.Zero, ErrSMMPanelInvalidRequest
+	}
+	buffer := decimal.NewFromInt(10000).Add(decimal.NewFromInt(int64(a.exchangeRateBufferBPS))).Div(decimal.NewFromInt(10000))
+	return rawCost.Mul(a.sourceToUSDT).Mul(buffer), nil
+}
+
+func ceilSMMPanelCent(value decimal.Decimal) decimal.Decimal {
+	return value.Div(decimal.RequireFromString("0.01")).Ceil().Mul(decimal.RequireFromString("0.01"))
+}
+
+type smmPanelOrderEnvelope struct {
+	Order    flexibleString  `json:"order"`
+	ID       flexibleString  `json:"id"`
+	OrderID  flexibleString  `json:"order_id"`
+	OrderNo  flexibleString  `json:"order_no"`
+	Status   string          `json:"status"`
+	Charge   flexibleString  `json:"charge"`
+	Amount   flexibleString  `json:"amount"`
+	Currency string          `json:"currency"`
+	Data     json.RawMessage `json:"data"`
+}
+
+func decodeSMMPanelCreateOrder(raw json.RawMessage, currency string) (*CreateUpstreamOrderResp, error) {
+	var envelope smmPanelOrderEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("%w: add response", ErrSMMPanelInvalidRequest)
+	}
+	if len(envelope.Data) > 0 && string(envelope.Order) == "" && string(envelope.ID) == "" && string(envelope.OrderID) == "" {
+		var nested smmPanelOrderEnvelope
+		if json.Unmarshal(envelope.Data, &nested) == nil {
+			envelope = nested
+		}
+	}
+	orderText := firstSMMPanelString(envelope.OrderID, envelope.Order, envelope.ID)
+	if orderText == "" {
+		return nil, fmt.Errorf("%w: add order id missing", ErrSMMPanelInvalidRequest)
+	}
+	orderID, err := strconv.ParseUint(orderText, 10, 64)
+	if err != nil || uint64(uint(orderID)) != orderID || orderID == 0 {
+		return nil, fmt.Errorf("%w: add order id invalid", ErrSMMPanelInvalidRequest)
+	}
+	amount := firstSMMPanelString(envelope.Charge, envelope.Amount)
+	if currency == "" {
+		currency = strings.ToUpper(strings.TrimSpace(envelope.Currency))
+	}
+	return &CreateUpstreamOrderResp{
+		OK: true, OrderID: uint(orderID), OrderNo: firstSMMPanelString(envelope.OrderNo, envelope.Order),
+		Status: strings.TrimSpace(envelope.Status), Amount: amount, Currency: strings.ToUpper(strings.TrimSpace(currency)),
+	}, nil
+}
+
+func decodeSMMPanelOrderStatus(raw json.RawMessage, requestedID uint, currency string) (*UpstreamOrderDetail, error) {
+	var envelope smmPanelOrderEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("%w: status response", ErrSMMPanelInvalidRequest)
+	}
+	if len(envelope.Data) > 0 && strings.TrimSpace(envelope.Status) == "" {
+		var nested smmPanelOrderEnvelope
+		if json.Unmarshal(envelope.Data, &nested) == nil {
+			envelope = nested
+		}
+	}
+	if strings.TrimSpace(envelope.Status) == "" {
+		return nil, fmt.Errorf("%w: status missing", ErrSMMPanelInvalidRequest)
+	}
+	orderID := requestedID
+	if text := firstSMMPanelString(envelope.OrderID, envelope.Order, envelope.ID); text != "" {
+		if parsed, parseErr := strconv.ParseUint(text, 10, 64); parseErr == nil && uint64(uint(parsed)) == parsed && parsed > 0 {
+			orderID = uint(parsed)
+		}
+	}
+	if currency == "" {
+		currency = strings.ToUpper(strings.TrimSpace(envelope.Currency))
+	}
+	status := strings.TrimSpace(envelope.Status)
+	var fulfillment *UpstreamFulfillment
+	switch strings.ToLower(status) {
+	case "completed", "complete", "delivered", "fulfilled":
+		fulfillment = &UpstreamFulfillment{Type: "smm", Status: "delivered"}
+	}
+	return &UpstreamOrderDetail{
+		OrderID: orderID, OrderNo: firstSMMPanelString(envelope.OrderNo, envelope.Order), Status: status,
+		Amount: firstSMMPanelString(envelope.Charge, envelope.Amount), Currency: strings.ToUpper(strings.TrimSpace(currency)),
+		Fulfillment: fulfillment,
+	}, nil
+}
+
+func firstSMMPanelString(values ...flexibleString) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(string(value)); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func (a *SMMPanelAdapter) postAction(ctx context.Context, action string, extra url.Values, result interface{}) error {
@@ -496,16 +755,28 @@ func (s smmPanelService) toUpstreamProduct() UpstreamProduct {
 	}}
 	if orderable {
 		product.ManualFormSchema = jsonmap.JSON{
-			"type": "object",
-			"properties": map[string]interface{}{
-				"link": map[string]interface{}{
-					"type":      "string",
-					"format":    "uri",
-					"protocols": []string{"http", "https"},
-					"maxLength": 2048,
+			// Dujiao-Next 的人工表单解析器使用 fields schema；不要把
+			// 上游常见的 JSON-Schema 直接写入本地商品，否则结算时
+			// 不会渲染 link 输入框，也不会执行校验。
+			"fields": []interface{}{
+				map[string]interface{}{
+					"key":      "link",
+					"type":     "text",
+					"required": true,
+					"label": map[string]interface{}{
+						"zh-CN": "目标链接",
+						"zh-TW": "目標連結",
+						"en-US": "Target link",
+					},
+					"placeholder": map[string]interface{}{
+						"zh-CN": "请输入 http:// 或 https:// 链接",
+						"zh-TW": "請輸入 http:// 或 https:// 連結",
+						"en-US": "Enter an http:// or https:// URL",
+					},
+					"regex":   `^https?://[^\s]+$`,
+					"max_len": 2048,
 				},
 			},
-			"required": []string{"link"},
 		}
 	}
 	return product

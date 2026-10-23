@@ -87,6 +87,7 @@ func (v *publicProductView) toProductResp() productpresenter.Product {
 		Tags:                 v.Product.Tags,
 		PurchaseType:         v.Product.PurchaseType,
 		MinPurchaseQuantity:  v.Product.MinPurchaseQuantity,
+		MinPurchaseQuantityReason: v.Product.MinPurchaseQuantityReasonJSON,
 		MaxPurchaseQuantity:  v.Product.MaxPurchaseQuantity,
 		StockDisplayMode:     productDisplay.Mode,
 		StockDisplay:         productDisplay.Display,

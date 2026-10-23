@@ -25,6 +25,8 @@ import (
 	userdomain "github.com/dujiao-next/internal/modules/identity/user/domain"
 
 	"github.com/dujiao-next/internal/constants"
+	mappingapp "github.com/dujiao-next/internal/modules/catalog/mapping/application"
+	productdomain "github.com/dujiao-next/internal/modules/catalog/product/domain"
 	captchaapp "github.com/dujiao-next/internal/modules/captcha/application"
 	captchahttp "github.com/dujiao-next/internal/modules/captcha/transport/http"
 	couponcontract "github.com/dujiao-next/internal/modules/coupon/contract"
@@ -508,6 +510,8 @@ func mapOrderTransportError(err error) error {
 		{orderapp.ErrInvalidEmail, ordertransport.ErrInvalidEmail},
 		{orderapp.ErrProductPurchaseNotAllowed, ordertransport.ErrProductPurchaseNotAllowed},
 		{orderapp.ErrManualStockInsufficient, ordertransport.ErrManualStockInsufficient},
+		{productdomain.ErrMinPurchaseNotMet, productdomain.ErrMinPurchaseNotMet},
+		{productdomain.ErrMaxPurchaseExceeded, productdomain.ErrMaxPurchaseExceeded},
 		{orderapp.ErrOrderCurrencyMismatch, ordertransport.ErrOrderCurrencyMismatch},
 		{orderapp.ErrProductNotAvailable, ordertransport.ErrProductNotAvailable},
 		{orderapp.ErrResellerCouponNotAllowed, ordertransport.ErrResellerCouponNotAllowed},
@@ -518,6 +522,21 @@ func mapOrderTransportError(err error) error {
 		{orderriskcontract.ErrProductQuantityLimit, ordertransport.ErrRiskProductQuantityLimit},
 		{orderriskcontract.ErrPendingProductQuantityLimit, ordertransport.ErrRiskPendingProductLimit},
 		{orderriskcontract.ErrOrderRateLimited, ordertransport.ErrRiskOrderRateLimited},
+		{mappingapp.ErrSMMQuantityBelowMinimum, productdomain.ErrMinPurchaseNotMet},
+		{mappingapp.ErrSMMQuantityAboveMaximum, productdomain.ErrMaxPurchaseExceeded},
+		{mappingapp.ErrSMMServiceNotOrderable, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMSourceCurrencyMissing, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMExchangeRateMissing, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMExchangeRateInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMMarkupMultiplierInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMMinimumAmountInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMPricingUnitInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMRateInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMQuantityInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMMinimumOrderUnreachable, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMMinimumExceedsMaximum, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMUpstreamQuantityRangeInvalid, ordertransport.ErrProductNotAvailable},
+		{mappingapp.ErrSMMCurrencyMismatch, ordertransport.ErrProductNotAvailable},
 	} {
 		if errors.Is(err, mapping.source) {
 			return fmt.Errorf("%w: %v", mapping.target, err)

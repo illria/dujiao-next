@@ -20,7 +20,7 @@ func (s *Service) RetryManual(id uint) error {
 		return procurementcontract.ErrNotFound
 	}
 
-	if procOrder.Status != "failed" && procOrder.Status != "rejected" {
+	if procOrder.Status != "failed" && procOrder.Status != "rejected" && procOrder.Status != constants.ProcurementStatusUnknown {
 		return procurementcontract.ErrStatusInvalid
 	}
 
@@ -60,7 +60,7 @@ func (s *Service) CancelManual(id uint) error {
 	}
 
 	switch procOrder.Status {
-	case constants.ProcurementStatusPending, constants.ProcurementStatusFailed, constants.ProcurementStatusRejected:
+	case constants.ProcurementStatusPending, constants.ProcurementStatusFailed, constants.ProcurementStatusRejected, constants.ProcurementStatusUnknown:
 		// 尚未在上游成单，可直接本地取消
 	case constants.ProcurementStatusAccepted:
 		// 上游已成单（通常已从上游钱包扣款）：必须上游取消成功才能标记取消，

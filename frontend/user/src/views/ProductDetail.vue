@@ -286,6 +286,9 @@
                       <Plus class="w-4 h-4" :stroke-width="2.5" />
                     </button>
                   </div>
+                  <p v-if="getLocalizedText(product.min_purchase_quantity_reason)" class="mt-2 text-xs text-muted-foreground">
+                    {{ getLocalizedText(product.min_purchase_quantity_reason) }}
+                  </p>
                 </div>
 
               <!-- Purchase Actions (Desktop + original position) -->

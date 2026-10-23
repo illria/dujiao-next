@@ -117,13 +117,28 @@ func (s *OrderService) buildOrderResult(input orderCreateParams) (*orderBuildRes
 
 		productCurrency := currency
 		basePrice := sku.PriceAmount.Decimal.Round(2)
+		var smmPricing bool
+		var smmCost, smmSell decimal.Decimal
+		var smmRate, smmPricingUnit string
+		if provider, ok := s.productMappingService.(smmOrderPricingProvider); ok {
+			smmSell, smmCost, smmRate, smmPricingUnit, smmPricing, err = provider.GetSMMOrderPricing(sku.ID, item.Quantity)
+			if err != nil {
+				return nil, err
+			}
+			if smmPricing {
+				// SMM 的 quantity 是上游服务数量，不是“商品件数”。把总价
+				// 转为内部单价以兼容既有订单折扣/小计模型，但总价仍按
+				// rate × quantity ÷ 1000 的定点结果计算。
+				basePrice = smmSell.Div(decimal.NewFromInt(int64(item.Quantity)))
+			}
+		}
 
 		// 1. 计算活动价
 		priceCarrier := *product
 		priceCarrier.PriceAmount = sku.PriceAmount
 		var promotion *promotiondomain.Promotion
 		promoUnitPriceAmount := basePrice
-		if promotionService != nil {
+		if promotionService != nil && !smmPricing {
 			var promoUnitPrice money.Amount
 			promotion, promoUnitPrice, err = promotionService.ApplyPromotion(&priceCarrier, item.Quantity)
 			if err != nil {
@@ -148,7 +163,7 @@ func (s *OrderService) buildOrderResult(input orderCreateParams) (*orderBuildRes
 		var wholesaleUnitPrice decimal.Decimal
 		wholesaleDiscount := decimal.Zero
 		wholesaleMatched := false
-		if !resellerOrder {
+		if !resellerOrder && !smmPricing {
 			wholesaleUnitPrice, wholesaleDiscount, wholesaleMatched = productdomain.ResolveWholesaleUnitPriceForSKU(product, basePrice, sku.ID, sku.SKUCode, wholesaleMatchQuantity, item.Quantity)
 		}
 		if wholesaleMatched && wholesaleUnitPrice.LessThan(unitPriceAmount) {
@@ -165,7 +180,7 @@ func (s *OrderService) buildOrderResult(input orderCreateParams) (*orderBuildRes
 
 		// 3. 在已命中的商品级优惠单价基础上应用会员价。
 		itemMemberDiscount := decimal.Zero
-		if !resellerOrder && userMemberLevelID > 0 && s.memberLevelService != nil {
+		if !resellerOrder && !smmPricing && userMemberLevelID > 0 && s.memberLevelService != nil {
 			memberUnitPrice, _ := s.memberLevelService.ResolveMemberPrice(userMemberLevelID, product.ID, sku.ID, unitPriceAmount)
 			if memberUnitPrice.LessThan(unitPriceAmount) {
 				itemMemberDiscount = unitPriceAmount.Sub(memberUnitPrice).
@@ -241,6 +256,10 @@ func (s *OrderService) buildOrderResult(input orderCreateParams) (*orderBuildRes
 			noPromotionSeen = true
 		}
 
+		costPriceSnapshot := sku.CostPriceAmount
+		if smmPricing {
+			costPriceSnapshot = money.FromDecimal(smmCost.Div(decimal.NewFromInt(int64(item.Quantity))))
+		}
 		orderItem := orderdomain.OrderItem{
 			ProductID: product.ID,
 			SKUID:     sku.ID,
@@ -254,7 +273,11 @@ func (s *OrderService) buildOrderResult(input orderCreateParams) (*orderBuildRes
 			Tags:                         product.Tags,
 			OriginalUnitPrice:            money.FromDecimal(basePrice),
 			UnitPrice:                    money.FromDecimal(unitPriceAmount),
-			CostPrice:                    sku.CostPriceAmount, // 成本价快照
+			CostPrice:                    costPriceSnapshot, // 成本价快照
+			UpstreamRateSnapshot:         smmRate,
+			UpstreamPricingUnit:          smmPricingUnit,
+			UpstreamCostSnapshot:         decimalTextOrEmpty(smmCost, smmPricing),
+			UpstreamSellSnapshot:         decimalTextOrEmpty(total, smmPricing),
 			Quantity:                     item.Quantity,
 			OriginalTotalPrice:           money.FromDecimal(baseTotal),
 			TotalPrice:                   money.FromDecimal(total),
@@ -341,6 +364,19 @@ func (s *OrderService) buildOrderResult(input orderCreateParams) (*orderBuildRes
 		planTotal := plan.TotalAmount.Sub(plan.CouponDiscount).Round(2)
 		if planTotal.LessThan(decimal.Zero) {
 			planTotal = decimal.Zero
+		}
+		if strings.TrimSpace(plan.Item.UpstreamCostSnapshot) != "" {
+			upstreamCost, parseErr := decimal.NewFromString(strings.TrimSpace(plan.Item.UpstreamCostSnapshot))
+			if parseErr != nil || upstreamCost.IsNegative() || planTotal.LessThanOrEqual(upstreamCost) {
+				// A coupon or other order-level discount must never turn an SMM
+				// order into a loss. The final post-discount amount is the price
+				// snapshot passed to the later external preflight.
+				return nil, ErrProductNotAvailable
+			}
+			plan.Item.UpstreamSellSnapshot = planTotal.String()
+		}
+		if i < len(orderItems) {
+			orderItems[i] = plan.Item
 		}
 		totalAmount = totalAmount.Add(planTotal).Round(2)
 	}
@@ -534,4 +570,11 @@ func FillOrdersItemsFromChildren(orders []orderdomain.Order) {
 	for i := range orders {
 		FillOrderItemsFromChildren(&orders[i])
 	}
+}
+
+func decimalTextOrEmpty(value decimal.Decimal, enabled bool) string {
+	if !enabled {
+		return ""
+	}
+	return value.String()
 }

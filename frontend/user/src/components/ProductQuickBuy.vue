@@ -273,6 +273,9 @@
                 </button>
               </div>
             </div>
+            <p v-if="getLocalizedText(product?.min_purchase_quantity_reason)" class="mb-4 text-xs text-muted-foreground">
+              {{ getLocalizedText(product?.min_purchase_quantity_reason) }}
+            </p>
 
             <!-- Warning -->
             <p v-if="stockBelowMinPurchase" class="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">

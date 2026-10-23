@@ -414,6 +414,8 @@ const (
 	ProcurementStatusPending           = "pending"
 	ProcurementStatusSubmitted         = "submitted"
 	ProcurementStatusAccepted          = "accepted"
+	// ProcurementStatusUnknown 表示外部 add 请求结果未知，必须人工核对，不能自动重试或回退本地订单。
+	ProcurementStatusUnknown           = "unknown"
 	ProcurementStatusRejected          = "rejected"
 	ProcurementStatusFailed            = "failed"
 	ProcurementStatusPartiallyRefunded = "partially_refunded"

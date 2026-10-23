@@ -163,6 +163,9 @@
               <input inputmode="numeric" class="h-11 w-[50px] border-x bg-card text-center font-bold tabular-nums outline-none" :value="quantity" :aria-label="t('productDetail.quantity')" @change="handleQuantityInput($event)" @keydown.enter.prevent="($event.target as HTMLInputElement)?.blur()" />
               <button type="button" class="grid h-11 w-[42px] place-items-center bg-card text-foreground disabled:opacity-35" :aria-label="t('productDetail.quantity')" :disabled="quantityEffectiveLimit !== null && quantity >= quantityEffectiveLimit" @click="quantity = quantity + 1"><Plus class="h-[17px] w-[17px]" /></button>
             </div>
+            <p v-if="getLocalizedText(product.min_purchase_quantity_reason)" class="mt-2 text-xs text-muted-foreground">
+              {{ getLocalizedText(product.min_purchase_quantity_reason) }}
+            </p>
           </div>
 
           <!-- 提示 -->

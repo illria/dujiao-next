@@ -29,6 +29,9 @@ var (
 	ErrSMMMinimumOrderUnreachable      = errors.New("smm minimum order amount cannot be reached")
 	ErrSMMMinimumExceedsMaximum        = errors.New("smm minimum order quantity exceeds upstream maximum")
 	ErrSMMUpstreamQuantityRangeInvalid = errors.New("smm upstream quantity range is invalid")
+	ErrSMMServiceNotOrderable           = errors.New("smm service is not orderable")
+	ErrSMMQuantityBelowMinimum          = errors.New("smm quantity is below the effective minimum")
+	ErrSMMQuantityAboveMaximum          = errors.New("smm quantity is above the upstream maximum")
 )
 
 const (

@@ -24,6 +24,10 @@ type Order struct {
 	UpstreamCurrency         string       `gorm:"type:varchar(10);not null;default:''" json:"upstream_currency"`
 	LocalSellAmount          money.Amount `gorm:"type:decimal(20,2);not null;default:0" json:"local_sell_amount"`
 	Currency                 string       `gorm:"type:varchar(10);not null" json:"currency"`
+	UpstreamRateSnapshot     string       `gorm:"type:varchar(64)" json:"upstream_rate_snapshot,omitempty"`
+	UpstreamPricingUnit      string       `gorm:"type:varchar(16)" json:"upstream_pricing_unit,omitempty"`
+	UpstreamCostSnapshot     string       `gorm:"type:varchar(64)" json:"upstream_cost_snapshot,omitempty"`
+	UpstreamSellSnapshot     string       `gorm:"type:varchar(64)" json:"upstream_sell_snapshot,omitempty"`
 	ErrorMessage             string       `gorm:"type:text" json:"error_message,omitempty"`
 	RetryCount               int          `gorm:"not null;default:0" json:"retry_count"`
 	NextRetryAt              *time.Time   `gorm:"index" json:"next_retry_at,omitempty"`
@@ -84,6 +88,10 @@ type LocalOrderItem struct {
 	Title                    jsonmap.JSON `json:"title"`
 	SKUSnapshot              jsonmap.JSON `json:"sku_snapshot"`
 	CostPrice                money.Amount `json:"cost_price"`
+	UpstreamRateSnapshot     string       `json:"-"`
+	UpstreamPricingUnit      string       `json:"-"`
+	UpstreamCostSnapshot     string       `json:"-"`
+	UpstreamSellSnapshot     string       `json:"-"`
 	Quantity                 int          `json:"quantity"`
 	TotalPrice               money.Amount `json:"total_price"`
 	FulfillmentType          string       `json:"fulfillment_type"`

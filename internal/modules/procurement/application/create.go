@@ -82,6 +82,10 @@ func (s *Service) createProcurementForSingleOrder(order *procurementdomain.Local
 		Status:          "pending",
 		LocalSellAmount: order.TotalAmount,
 		Currency:        order.Currency,
+		UpstreamRateSnapshot: item.UpstreamRateSnapshot,
+		UpstreamPricingUnit: item.UpstreamPricingUnit,
+		UpstreamCostSnapshot: item.UpstreamCostSnapshot,
+		UpstreamSellSnapshot: item.UpstreamSellSnapshot,
 		TraceID:         uuid.NewString(),
 	}
 

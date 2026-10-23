@@ -31,6 +31,10 @@ type CreateOrderRequest struct {
 	SKUID             uint
 	Quantity          int
 	ManualFormData    jsonmap.JSON
+	SnapshotRate      string
+	SnapshotPricingUnit string
+	SnapshotCost      string
+	SnapshotSell      string
 	DownstreamOrderNo string
 	TraceID           string
 	CallbackURL       string

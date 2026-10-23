@@ -20,6 +20,10 @@ type OrderItem struct {
 	OriginalUnitPrice            money.Amount      `gorm:"type:decimal(20,2);not null;default:0" json:"original_unit_price"`       // 原始单价快照
 	UnitPrice                    money.Amount      `gorm:"type:decimal(20,2);not null;default:0" json:"unit_price"`                // 单价
 	CostPrice                    money.Amount      `gorm:"type:decimal(20,2);not null;default:0" json:"cost_price"`                // 成本价快照
+	UpstreamRateSnapshot         string            `gorm:"type:varchar(64)" json:"-"`                                                // SMM 上游费率定点快照
+	UpstreamPricingUnit          string            `gorm:"type:varchar(16)" json:"-"`                                                // SMM 价格单位快照
+	UpstreamCostSnapshot         string            `gorm:"type:varchar(64)" json:"-"`                                                // SMM 本次数量的高精度成本快照
+	UpstreamSellSnapshot         string            `gorm:"type:varchar(64)" json:"-"`                                                // SMM 本次数量的售价快照
 	Quantity                     int               `gorm:"not null" json:"quantity"`                                               // 数量
 	OriginalTotalPrice           money.Amount      `gorm:"type:decimal(20,2);not null;default:0" json:"original_total_price"`      // 原始小计快照
 	TotalPrice                   money.Amount      `gorm:"type:decimal(20,2);not null;default:0" json:"total_price"`               // 小计

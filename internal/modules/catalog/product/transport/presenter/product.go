@@ -27,6 +27,7 @@ type Product struct {
 	Tags                 jsonslice.Strings `json:"tags"`
 	PurchaseType         string            `json:"purchase_type"`
 	MinPurchaseQuantity  int               `json:"min_purchase_quantity"`
+	MinPurchaseQuantityReason jsonmap.JSON `json:"min_purchase_quantity_reason,omitempty"`
 	MaxPurchaseQuantity  int               `json:"max_purchase_quantity"`
 	StockDisplayMode     string            `json:"stock_display_mode"`
 	StockDisplay         string            `json:"stock_display"`

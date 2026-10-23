@@ -76,6 +76,10 @@ func (s *Service) SubmitToUpstream(procurementOrderID uint) error {
 	req := procurementcontract.CreateOrderRequest{
 		SKUID:             upstreamSKUID,
 		Quantity:          item.Quantity,
+		SnapshotRate:      procOrder.UpstreamRateSnapshot,
+		SnapshotPricingUnit: procOrder.UpstreamPricingUnit,
+		SnapshotCost:      procOrder.UpstreamCostSnapshot,
+		SnapshotSell:      procOrder.UpstreamSellSnapshot,
 		DownstreamOrderNo: localOrder.OrderNo,
 		TraceID:           procOrder.TraceID,
 		CallbackURL:       connection.CallbackURL(),
@@ -89,12 +93,23 @@ func (s *Service) SubmitToUpstream(procurementOrderID uint) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	smmPanel := isSMMPanelConnection(connection)
 	resp, err := connection.CreateOrder(ctx, req)
 	if err != nil {
+		if smmPanel {
+			return s.markSMMOrderUnknown(procOrder, fmt.Sprintf("SMM order submission requires manual review: %v", err))
+		}
 		return s.handleSubmitFailure(procOrder, connection, fmt.Sprintf("upstream request error: %v", err), true)
 	}
 
 	if !resp.OK {
+		if smmPanel {
+			reason := resp.ErrorMessage
+			if reason == "" {
+				reason = resp.ErrorCode
+			}
+			return s.markSMMOrderUnknown(procOrder, fmt.Sprintf("SMM order requires manual review: %s", reason))
+		}
 		retryable := isRetryableErrorCode(resp.ErrorCode)
 		errMsg := resp.ErrorMessage
 		if errMsg == "" {
@@ -141,6 +156,42 @@ func (s *Service) SubmitToUpstream(procurementOrderID uint) error {
 		_ = s.queue.EnqueuePoll(procOrder.ID, 30*time.Second)
 	}
 
+	return nil
+}
+
+type upstreamProtocolProvider interface {
+	Protocol() string
+}
+
+func isSMMPanelConnection(connection procurementcontract.UpstreamConnection) bool {
+	provider, ok := connection.(upstreamProtocolProvider)
+	return ok && strings.EqualFold(strings.TrimSpace(provider.Protocol()), constants.ConnectionProtocolSMMPanel)
+}
+
+// markSMMOrderUnknown is deliberately separate from handleSubmitFailure:
+// SMM action=add has no idempotency key, so a timeout or network error must
+// never be retried and must never roll the paid order back to paid.
+func (s *Service) markSMMOrderUnknown(procOrder *procurementdomain.Order, reason string) error {
+	if procOrder == nil {
+		return procurementcontract.ErrNotFound
+	}
+	now := time.Now()
+	unknown, err := s.procRepo.UpdateStatus(procOrder.ID, procOrder.Status, constants.ProcurementStatusUnknown, map[string]interface{}{
+		"error_message": reason,
+		"next_retry_at": nil,
+		"updated_at":    now,
+	})
+	if err != nil {
+		return fmt.Errorf("update SMM procurement status (unknown): %w", err)
+	}
+	if !unknown {
+		return nil
+	}
+	logger.Warnw("smm_procurement_requires_manual_review",
+		"procurement_order_id", procOrder.ID,
+		"reason", reason,
+	)
+	s.notifyProcurementFailure(procOrder, reason)
 	return nil
 }
 

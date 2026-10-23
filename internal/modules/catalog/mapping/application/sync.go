@@ -873,6 +873,14 @@ func (s *Service) syncSMMProductFromData(mapping *mappingdomain.Mapping, conn *s
 		localProduct.PriceAmount = money.FromDecimal(referencePrice.SellPrice)
 		localProduct.CostPriceAmount = money.FromDecimal(referencePrice.ConvertedCost)
 		localProduct.MinPurchaseQuantity = effectiveMin
+		localProduct.MinPurchaseQuantityReasonJSON = jsonmap.JSON{}
+		if orderable && effectiveMin > maxIntOrOne(upProduct.MinQuantity) {
+			localProduct.MinPurchaseQuantityReasonJSON = jsonmap.JSON{
+				"zh-CN": "有效最小数量包含上游最小数量与最低订单金额要求，请增加数量后再下单。",
+				"zh-TW": "有效最小數量包含上游最小數量與最低訂單金額要求，請增加數量後再下單。",
+				"en-US": "The effective minimum includes the upstream minimum and the minimum order amount; increase the quantity before ordering.",
+			}
+		}
 		localProduct.MaxPurchaseQuantity = upProduct.MaxQuantity
 		if err := s.products.Update(localProduct); err != nil {
 			return fmt.Errorf("update local smm product: %w", err)
@@ -1004,6 +1012,13 @@ func smmPricingUnit(raw string) string {
 		return constants.PricingUnitPer1000
 	}
 	return strings.TrimSpace(raw)
+}
+
+func maxIntOrOne(value int) int {
+	if value < 1 {
+		return 1
+	}
+	return value
 }
 
 func decimalToMoneyAmount(value string) money.Amount {

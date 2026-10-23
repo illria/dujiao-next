@@ -81,6 +81,13 @@ type upstreamStockEnsurer interface {
 	EnsureUpstreamStockForOrder(localSKUID uint, quantity int) error
 }
 
+// smmOrderPricingProvider is an optional extension implemented by Catalog
+// Mapping. Keeping it optional preserves the existing order test doubles and
+// the pricing path for non-SMM products.
+type smmOrderPricingProvider interface {
+	GetSMMOrderPricing(localSKUID uint, quantity int) (sellPrice, cost decimal.Decimal, rate, pricingUnit string, isSMM bool, err error)
+}
+
 // OrderServiceOptions 订单服务构造参数
 type OrderServiceOptions struct {
 	OrderStore              ordercontract.Store

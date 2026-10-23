@@ -12,6 +12,7 @@ import (
 
 	"github.com/dujiao-next/internal/constants"
 	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
+	"github.com/dujiao-next/internal/shared/jsonmap"
 )
 
 func TestSMMPanelAdapterBalanceUsesReadOnlyAction(t *testing.T) {
@@ -119,6 +120,10 @@ func TestSMMPanelAdapterServicesPreserveRateAndTypeMetadata(t *testing.T) {
 	if !first.Orderable || first.MinQuantity != 500 || first.MaxQuantity != 200000 {
 		t.Fatalf("default service metadata was not parsed: %#v", first)
 	}
+	fields, ok := first.ManualFormSchema["fields"].([]interface{})
+	if !ok || len(fields) != 1 {
+		t.Fatalf("expected Dujiao-Next manual form fields schema, got %#v", first.ManualFormSchema)
+	}
 	second := result.Items[1]
 	if second.Orderable || second.UnsupportedReason == "" || second.ServiceType != "Package" {
 		t.Fatalf("unsupported service metadata was not parsed: %#v", second)
@@ -190,6 +195,181 @@ func TestSMMPanelAdapterWriteIsDisabledWithoutCallingAdd(t *testing.T) {
 	_, err = adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{Quantity: 1})
 	if !errors.Is(err, ErrSMMPanelReadOnly) {
 		t.Fatalf("expected read-only error, got %v", err)
+	}
+}
+
+func TestSMMPanelAdapterAddIsGatedAndUsesLatestPricePreflight(t *testing.T) {
+	t.Setenv(constants.ConnectionSecretRefSMMPanel, "test-only-key")
+	t.Setenv(smmPanelOrderingEnabledEnv, "true")
+	addCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Form.Get("action") {
+		case "services":
+			_, _ = w.Write([]byte(`[{"service":"36","name":"Telegram","type":"Default","rate":"10.85","min":"500","max":"200000"}]`))
+		case "add":
+			addCalled = true
+			if r.Form.Get("link") != "https://example.com/post/1" || r.Form.Get("quantity") != "1000" {
+				t.Fatalf("unexpected add fields: %v", r.Form)
+			}
+			_, _ = w.Write([]byte(`{"order":123,"status":"Pending","charge":"10.85"}`))
+		default:
+			t.Fatalf("unexpected action %q", r.Form.Get("action"))
+		}
+	}))
+	defer server.Close()
+
+	adapter, err := NewSMMPanelAdapter(&siteconnectiondomain.Connection{
+		BaseURL: server.URL, SourceCurrency: "USD", SourceToUSDT: "1",
+	}, t.TempDir())
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+	result, err := adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
+		SKUID: 36, Quantity: 1000,
+		ManualFormData: jsonmap.JSON{"link": "https://example.com/post/1"},
+		SnapshotRate: "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
+		SnapshotCost: "10.85", SnapshotSell: "21.70",
+	})
+	if err != nil {
+		t.Fatalf("create order: %v", err)
+	}
+	if !result.OK || result.OrderID != 123 || !addCalled {
+		t.Fatalf("unexpected add result: %#v, called=%v", result, addCalled)
+	}
+}
+
+func TestSMMPanelAdapterRejectsInvalidLinkBeforeAdd(t *testing.T) {
+	t.Setenv(constants.ConnectionSecretRefSMMPanel, "test-only-key")
+	t.Setenv(smmPanelOrderingEnabledEnv, "true")
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		t.Fatalf("invalid link should not reach upstream: %s", r.URL.Path)
+	}))
+	defer server.Close()
+	adapter, err := NewSMMPanelAdapter(&siteconnectiondomain.Connection{BaseURL: server.URL}, t.TempDir())
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+	_, err = adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
+		SKUID: 36, Quantity: 1000,
+		ManualFormData: jsonmap.JSON{"link": "javascript:alert(1)"},
+	})
+	if !errors.Is(err, ErrSMMPanelLinkInvalid) || called {
+		t.Fatalf("expected invalid link without request, err=%v called=%v", err, called)
+	}
+}
+
+func TestSMMPanelAdapterStatusIsReadOnly(t *testing.T) {
+	t.Setenv(constants.ConnectionSecretRefSMMPanel, "test-only-key")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if r.Form.Get("action") != "status" || r.Form.Get("order") != "123" {
+			t.Fatalf("unexpected status request: %v", r.Form)
+		}
+		_, _ = w.Write([]byte(`{"order":123,"status":"Completed","charge":"10.85","currency":"USD"}`))
+	}))
+	defer server.Close()
+	adapter, err := NewSMMPanelAdapter(&siteconnectiondomain.Connection{BaseURL: server.URL, SourceCurrency: "USD"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+	detail, err := adapter.GetOrder(context.Background(), 123)
+	if err != nil || detail.OrderID != 123 || detail.Status != "Completed" || detail.Fulfillment == nil {
+		t.Fatalf("unexpected status result: detail=%#v err=%v", detail, err)
+	}
+}
+
+func TestSMMPanelAdapterPreflightBlocksCostChangeAndUnprofitableOrder(t *testing.T) {
+	t.Setenv(constants.ConnectionSecretRefSMMPanel, "test-only-key")
+	t.Setenv(smmPanelOrderingEnabledEnv, "true")
+	for _, test := range []struct {
+		name         string
+		snapshotCost string
+		snapshotSell string
+		wantCode     string
+	}{
+		{name: "cost changed", snapshotCost: "10.84", snapshotSell: "21.70", wantCode: "smm_cost_changed"},
+		{name: "unprofitable", snapshotCost: "10.85", snapshotSell: "10.85", wantCode: "smm_unprofitable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			addCalled := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := r.ParseForm(); err != nil {
+					t.Fatalf("parse form: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				switch r.Form.Get("action") {
+				case "services":
+					_, _ = w.Write([]byte(`[{"service":"36","name":"Telegram","type":"Default","rate":"10.85","min":"500","max":"200000"}]`))
+				case "add":
+					addCalled = true
+					_, _ = w.Write([]byte(`{"order":123}`))
+				default:
+					t.Fatalf("unexpected action %q", r.Form.Get("action"))
+				}
+			}))
+			defer server.Close()
+
+			adapter, err := NewSMMPanelAdapter(&siteconnectiondomain.Connection{
+				BaseURL: server.URL, SourceCurrency: "USD", SourceToUSDT: "1",
+			}, t.TempDir())
+			if err != nil {
+				t.Fatalf("new adapter: %v", err)
+			}
+			result, err := adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
+				SKUID: 36, Quantity: 1000,
+				ManualFormData: jsonmap.JSON{"link": "https://example.com/post/1"},
+				SnapshotRate: "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
+				SnapshotCost: test.snapshotCost, SnapshotSell: test.snapshotSell,
+			})
+			if err != nil || result == nil || result.OK || result.ErrorCode != test.wantCode || addCalled {
+				t.Fatalf("preflight result=%#v err=%v add_called=%v", result, err, addCalled)
+			}
+		})
+	}
+}
+
+func TestSMMPanelAdapterMalformedAddResponseIsUnknown(t *testing.T) {
+	t.Setenv(constants.ConnectionSecretRefSMMPanel, "test-only-key")
+	t.Setenv(smmPanelOrderingEnabledEnv, "true")
+	addCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Form.Get("action") {
+		case "services":
+			_, _ = w.Write([]byte(`[{"service":"36","name":"Telegram","type":"Default","rate":"10.85","min":"500","max":"200000"}]`))
+		case "add":
+			addCalls++
+			_, _ = w.Write([]byte(`{"unexpected":true}`))
+		default:
+			t.Fatalf("unexpected action %q", r.Form.Get("action"))
+		}
+	}))
+	defer server.Close()
+	adapter, err := NewSMMPanelAdapter(&siteconnectiondomain.Connection{
+		BaseURL: server.URL, SourceCurrency: "USD", SourceToUSDT: "1",
+	}, t.TempDir())
+	if err != nil {
+		t.Fatalf("new adapter: %v", err)
+	}
+	_, err = adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
+		SKUID: 36, Quantity: 1000,
+		ManualFormData: jsonmap.JSON{"link": "https://example.com/post/1"},
+		SnapshotRate: "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
+		SnapshotCost: "10.85", SnapshotSell: "21.70",
+	})
+	if !errors.Is(err, ErrSMMPanelOrderUnknown) || addCalls != 1 {
+		t.Fatalf("expected one unknown add outcome, err=%v add_calls=%d", err, addCalls)
 	}
 }
 

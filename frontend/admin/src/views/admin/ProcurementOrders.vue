@@ -95,6 +95,7 @@ const statusOptions = [
   { value: '__all__', key: 'procurement.filters.allStatus' },
   { value: 'pending', key: 'procurement.status.pending' },
   { value: 'accepted', key: 'procurement.status.accepted' },
+  { value: 'unknown', key: 'procurement.status.unknown' },
   { value: 'rejected', key: 'procurement.status.rejected' },
   { value: 'failed', key: 'procurement.status.failed' },
   { value: 'partially_refunded', key: 'procurement.status.partially_refunded' },
@@ -281,6 +282,7 @@ const statusBadgeClass = (status: string) => {
     case 'pending': return 'text-amber-700 border-amber-200 bg-amber-50'
     case 'submitted': return 'text-blue-700 border-blue-200 bg-blue-50'
     case 'accepted': return 'text-sky-700 border-sky-200 bg-sky-50'
+    case 'unknown': return 'text-orange-700 border-orange-200 bg-orange-50'
     case 'rejected': return 'text-red-700 border-red-200 bg-red-50'
     case 'failed': return 'text-red-700 border-red-200 bg-red-50'
     case 'partially_refunded': return 'text-orange-700 border-orange-200 bg-orange-50'
@@ -410,8 +412,8 @@ const profitClass = (order: ProcurementOrderWithRelations) => {
   return parseFloat(p) >= 0 ? 'text-emerald-600' : 'text-red-600'
 }
 
-const canRetry = (status: string) => ['failed', 'rejected'].includes(status)
-const canCancel = (status: string) => ['pending', 'submitted', 'accepted', 'failed'].includes(status)
+const canRetry = (status: string) => ['failed', 'rejected', 'unknown'].includes(status)
+const canCancel = (status: string) => ['pending', 'submitted', 'accepted', 'failed', 'unknown'].includes(status)
 
 onMounted(() => {
   fetchConnections()

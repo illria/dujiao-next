@@ -26,6 +26,7 @@ type Product struct {
 	Tags                 jsonslice.Strings   `gorm:"type:json" json:"tags"`                                               // 标签数组
 	PurchaseType         string              `gorm:"type:varchar(20);not null;default:'member'" json:"purchase_type"`     // 购买身份（guest/member）
 	MinPurchaseQuantity  int                 `gorm:"not null;default:0" json:"min_purchase_quantity"`                     // 单次最小购买数量（0 表示不限制）
+	MinPurchaseQuantityReasonJSON jsonmap.JSON `gorm:"type:json" json:"min_purchase_quantity_reason"`                    // 最小数量说明（多语言）
 	MaxPurchaseQuantity  int                 `gorm:"not null;default:0" json:"max_purchase_quantity"`                     // 单次最大购买数量（0 表示不限制）
 	StockDisplayMode     string              `gorm:"type:varchar(20);not null;default:'exact'" json:"stock_display_mode"` // 公开库存展示模式（exact/status/range/hidden）
 	FulfillmentType      string              `gorm:"type:varchar(20);not null;default:'manual'" json:"fulfillment_type"`  // 交付类型（auto/manual）
