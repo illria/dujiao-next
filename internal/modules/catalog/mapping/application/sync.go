@@ -1058,6 +1058,15 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 }
 
 func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, conn *siteconnectiondomain.Connection, source *upstream.ProdSellerProduct, now time.Time) error {
+	// v1.5.2 曾在创建本地商品后遗漏回填 LocalProductID，导致少量已落库映射指向 0。
+	// 这些映射通常仍保留着 SKU 映射，因此先通过 SKU -> Product 关系做非破坏性修复，
+	// 再继续正常同步；不删除历史映射，也不创建重复的上游商品映射。
+	if mapping.LocalProductID == 0 {
+		if err := s.repairProdSellerLocalProductID(mapping); err != nil {
+			return err
+		}
+	}
+
 	localProduct, err := s.products.GetByID(strconv.FormatUint(uint64(mapping.LocalProductID), 10))
 	if err != nil {
 		return err
@@ -1155,6 +1164,55 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	mapping.IsActive = true
 	mapping.LastSyncedAt = &now
 	return s.mappings.Update(mapping)
+}
+
+// repairProdSellerLocalProductID 修复历史 ProdSeller 映射遗漏的本地商品 ID。
+// 只沿已有的 SKU 映射回溯，不删除数据、不创建重复商品；无法安全回溯时明确报错，
+// 让后台同步保持失败可见，避免静默生成无法追踪的商品。
+func (s *Service) repairProdSellerLocalProductID(mapping *mappingdomain.Mapping) error {
+	if mapping == nil || mapping.ID == 0 {
+		return errors.New("invalid prodseller mapping")
+	}
+	if s.skuMappings == nil || s.skus == nil || s.products == nil || s.mappings == nil {
+		return errors.New("prodseller mapping repair repositories are unavailable")
+	}
+
+	skuMappings, err := s.skuMappings.ListByProductMapping(mapping.ID)
+	if err != nil {
+		return fmt.Errorf("list prodseller SKU mappings for repair: %w", err)
+	}
+	for _, skuMapping := range skuMappings {
+		if skuMapping.LocalSKUID == 0 {
+			continue
+		}
+		localSKU, err := s.skus.GetByID(skuMapping.LocalSKUID)
+		if err != nil {
+			return fmt.Errorf("get prodseller SKU for repair: %w", err)
+		}
+		if localSKU == nil || localSKU.ProductID == 0 {
+			continue
+		}
+		localProduct, err := s.products.GetByID(strconv.FormatUint(uint64(localSKU.ProductID), 10))
+		if err != nil {
+			return fmt.Errorf("get prodseller product for repair: %w", err)
+		}
+		if localProduct == nil {
+			continue
+		}
+
+		mapping.LocalProductID = localProduct.ID
+		if err := s.mappings.Update(mapping); err != nil {
+			return fmt.Errorf("repair prodseller mapping local product: %w", err)
+		}
+		logger.Warnw("prodseller_mapping_local_product_repaired",
+			"mapping_id", mapping.ID,
+			"connection_id", mapping.ConnectionID,
+			"local_product_id", mapping.LocalProductID,
+		)
+		return nil
+	}
+
+	return errors.New("prodseller mapping has no recoverable local product")
 }
 
 func prodSellerLocalizedText(text string) jsonmap.JSON {

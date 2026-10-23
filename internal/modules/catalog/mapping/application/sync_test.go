@@ -141,3 +141,150 @@ func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 		t.Fatalf("expected no preloaded product relation in returned mapping, got %#v", got)
 	}
 }
+
+type repairMappingRepository struct {
+	updated *mappingdomain.Mapping
+}
+
+func (r *repairMappingRepository) GetByID(uint) (*mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) GetByLocalProductID(uint) (*mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) GetByConnectionAndUpstreamID(uint, uint) (*mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) GetByConnectionAndUpstreamExternalID(uint, string) (*mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) Create(*mappingdomain.Mapping) error { return nil }
+
+func (r *repairMappingRepository) Update(mapping *mappingdomain.Mapping) error {
+	r.updated = mapping
+	return nil
+}
+
+func (r *repairMappingRepository) Delete(uint) error { return nil }
+
+func (r *repairMappingRepository) DeleteByLocalProduct(uint) error { return nil }
+
+func (r *repairMappingRepository) List(mappingcontract.ListFilter) ([]mappingdomain.Mapping, int64, error) {
+	return nil, 0, nil
+}
+
+func (r *repairMappingRepository) ListByLocalProductIDs([]uint) ([]mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) ListActiveByConnection(uint) ([]mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) ListByConnection(uint) ([]mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) ListAllActive() ([]mappingdomain.Mapping, error) {
+	return nil, nil
+}
+
+func (r *repairMappingRepository) ListUpstreamIDsByConnection(uint) ([]uint, error) {
+	return nil, nil
+}
+
+type repairSKUMappingRepository struct {
+	mappings []mappingdomain.SKUMapping
+}
+
+func (r *repairSKUMappingRepository) GetByLocalSKUID(uint) (*mappingdomain.SKUMapping, error) {
+	return nil, nil
+}
+
+func (r *repairSKUMappingRepository) ListByProductMapping(uint) ([]mappingdomain.SKUMapping, error) {
+	return r.mappings, nil
+}
+
+func (r *repairSKUMappingRepository) ListByProductMappingIDs([]uint) ([]mappingdomain.SKUMapping, error) {
+	return nil, nil
+}
+
+func (r *repairSKUMappingRepository) Create(*mappingdomain.SKUMapping) error { return nil }
+
+func (r *repairSKUMappingRepository) Update(*mappingdomain.SKUMapping) error { return nil }
+
+func (r *repairSKUMappingRepository) DeleteByProductMapping(uint) error { return nil }
+
+type repairProductRepository struct {
+	product *productdomain.Product
+}
+
+func (r *repairProductRepository) GetByID(id string) (*productdomain.Product, error) {
+	if r.product != nil && id == "23" {
+		return r.product, nil
+	}
+	return nil, nil
+}
+
+func (r *repairProductRepository) Update(*productdomain.Product) error { return nil }
+
+func (r *repairProductRepository) QuickUpdate(string, map[string]interface{}) error { return nil }
+
+func (r *repairProductRepository) CountBySlug(string, *string) (int64, error) { return 0, nil }
+
+type repairSKURepository struct {
+	sku *productdomain.ProductSKU
+}
+
+func (r *repairSKURepository) GetByID(id uint) (*productdomain.ProductSKU, error) {
+	if r.sku != nil && id == r.sku.ID {
+		return r.sku, nil
+	}
+	return nil, nil
+}
+
+func (r *repairSKURepository) ListByProduct(uint, bool) ([]productdomain.ProductSKU, error) {
+	return nil, nil
+}
+
+func (r *repairSKURepository) Create(*productdomain.ProductSKU) error { return nil }
+
+func (r *repairSKURepository) Update(*productdomain.ProductSKU) error { return nil }
+
+func TestRepairProdSellerLocalProductIDFromExistingSKUMapping(t *testing.T) {
+	mappingRepo := &repairMappingRepository{}
+	svc := &Service{
+		mappings:    mappingRepo,
+		skuMappings: &repairSKUMappingRepository{mappings: []mappingdomain.SKUMapping{{LocalSKUID: 9}}},
+		skus:        &repairSKURepository{sku: &productdomain.ProductSKU{ID: 9, ProductID: 23}},
+		products:    &repairProductRepository{product: &productdomain.Product{ID: 23}},
+	}
+	mapping := &mappingdomain.Mapping{ID: 5, ConnectionID: 7}
+
+	if err := svc.repairProdSellerLocalProductID(mapping); err != nil {
+		t.Fatalf("repairProdSellerLocalProductID returned error: %v", err)
+	}
+	if mapping.LocalProductID != 23 {
+		t.Fatalf("expected recovered local product ID 23, got %d", mapping.LocalProductID)
+	}
+	if mappingRepo.updated != mapping {
+		t.Fatalf("expected repaired mapping to be persisted")
+	}
+}
+
+func TestRepairProdSellerLocalProductIDFailsClosedWithoutRecoverableSKU(t *testing.T) {
+	svc := &Service{
+		mappings:    &repairMappingRepository{},
+		skuMappings: &repairSKUMappingRepository{},
+		skus:        &repairSKURepository{},
+		products:    &repairProductRepository{},
+	}
+	err := svc.repairProdSellerLocalProductID(&mappingdomain.Mapping{ID: 5})
+	if err == nil {
+		t.Fatalf("expected repair to fail closed, got %v", err)
+	}
+}
