@@ -4,7 +4,13 @@ import (
 	"testing"
 	"time"
 
+	mappingcontract "github.com/dujiao-next/internal/modules/catalog/mapping/contract"
+	mappingdomain "github.com/dujiao-next/internal/modules/catalog/mapping/domain"
+	productdomain "github.com/dujiao-next/internal/modules/catalog/product/domain"
 	settingsintegration "github.com/dujiao-next/internal/modules/settings/schema/integration"
+	siteconnectiondomain "github.com/dujiao-next/internal/modules/siteconnection/domain"
+	"github.com/dujiao-next/internal/upstream"
+	"github.com/shopspring/decimal"
 )
 
 // fakeSettingsProvider 以固定同步间隔实现 SettingsProvider。
@@ -48,5 +54,86 @@ func TestComputeFullSyncIntervalWithoutSettings(t *testing.T) {
 	got := svc.computeFullSyncInterval()
 	if got != fullSyncIntervalFloor {
 		t.Fatalf("expected floor when settings=nil, got %v", got)
+	}
+}
+
+type captureImportProductRepository struct {
+	product *productdomain.Product
+}
+
+func (r *captureImportProductRepository) Create(product *productdomain.Product) error {
+	product.ID = 41
+	r.product = product
+	return nil
+}
+
+type captureImportSKURepository struct{}
+
+func (captureImportSKURepository) Create(sku *productdomain.ProductSKU) error {
+	sku.ID = 51
+	return nil
+}
+
+type captureImportMappingRepository struct {
+	mapping *mappingdomain.Mapping
+}
+
+func (r *captureImportMappingRepository) Create(mapping *mappingdomain.Mapping) error {
+	r.mapping = mapping
+	return nil
+}
+
+type captureImportSKUMappingRepository struct{}
+
+func (captureImportSKUMappingRepository) Create(*mappingdomain.SKUMapping) error { return nil }
+
+type captureImportUnitOfWork struct {
+	repositories mappingcontract.ImportRepositories
+}
+
+func (u captureImportUnitOfWork) WithinTransaction(fn func(mappingcontract.ImportRepositories) error) error {
+	return fn(u.repositories)
+}
+
+func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
+	products := &captureImportProductRepository{}
+	mappings := &captureImportMappingRepository{}
+	svc := &Service{
+		transactions: captureImportUnitOfWork{repositories: mappingcontract.ImportRepositories{
+			Products:    products,
+			SKUs:        captureImportSKURepository{},
+			Mappings:    mappings,
+			SKUMappings: captureImportSKUMappingRepository{},
+		}},
+	}
+	conn := &siteconnectiondomain.Connection{
+		ID:           7,
+		ExchangeRate: decimal.NewFromInt(1),
+	}
+	source := &upstream.ProdSellerProduct{
+		ID:          "external-41",
+		Name:        "Example",
+		Description: "Description",
+		Price:       decimal.NewFromFloat(1.25),
+		PublicPrice: decimal.NewFromFloat(1.5),
+		Delivery:    upstream.ProdSellerDelivery{Type: "instant"},
+		InStock:     true,
+	}
+
+	created, err := svc.createProdSellerProduct(7, 11, conn, source, time.Now())
+	if err != nil {
+		t.Fatalf("createProdSellerProduct returned error: %v", err)
+	}
+	if products.product == nil || products.product.ID != 41 {
+		t.Fatalf("expected created product ID 41, got %#v", products.product)
+	}
+	if mappings.mapping == nil || mappings.mapping.LocalProductID != 41 {
+		t.Fatalf("expected mapping to reference created product ID 41, got %#v", mappings.mapping)
+	}
+	if created.LocalProductID != 41 {
+		t.Fatalf("expected returned mapping to reference created product ID 41, got %d", created.LocalProductID)
+	}
+	if got := created.Product; got != nil {
+		t.Fatalf("expected no preloaded product relation in returned mapping, got %#v", got)
 	}
 }
