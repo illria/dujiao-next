@@ -129,16 +129,16 @@ type UpstreamSKU struct {
 
 // CreateUpstreamOrderReq 创建上游采购单请求
 type CreateUpstreamOrderReq struct {
-	SKUID             uint         `json:"sku_id"`
-	Quantity          int          `json:"quantity"`
-	ManualFormData    jsonmap.JSON `json:"manual_form_data,omitempty"`
-	SnapshotRate      string       `json:"snapshot_rate,omitempty"`
-	SnapshotPricingUnit string     `json:"snapshot_pricing_unit,omitempty"`
-	SnapshotCost      string       `json:"snapshot_cost,omitempty"`
-	SnapshotSell      string       `json:"snapshot_sell,omitempty"`
-	DownstreamOrderNo string       `json:"downstream_order_no"`
-	TraceID           string       `json:"trace_id"`
-	CallbackURL       string       `json:"callback_url"`
+	SKUID               uint         `json:"sku_id"`
+	Quantity            int          `json:"quantity"`
+	ManualFormData      jsonmap.JSON `json:"manual_form_data,omitempty"`
+	SnapshotRate        string       `json:"snapshot_rate,omitempty"`
+	SnapshotPricingUnit string       `json:"snapshot_pricing_unit,omitempty"`
+	SnapshotCost        string       `json:"snapshot_cost,omitempty"`
+	SnapshotSell        string       `json:"snapshot_sell,omitempty"`
+	DownstreamOrderNo   string       `json:"downstream_order_no"`
+	TraceID             string       `json:"trace_id"`
+	CallbackURL         string       `json:"callback_url"`
 }
 
 // CreateUpstreamOrderResp 创建上游采购单响应

@@ -231,7 +231,7 @@ func TestSMMPanelAdapterAddIsGatedAndUsesLatestPricePreflight(t *testing.T) {
 	result, err := adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
 		SKUID: 36, Quantity: 1000,
 		ManualFormData: jsonmap.JSON{"link": "https://example.com/post/1"},
-		SnapshotRate: "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
+		SnapshotRate:   "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
 		SnapshotCost: "10.85", SnapshotSell: "21.70",
 	})
 	if err != nil {
@@ -326,7 +326,7 @@ func TestSMMPanelAdapterPreflightBlocksCostChangeAndUnprofitableOrder(t *testing
 			result, err := adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
 				SKUID: 36, Quantity: 1000,
 				ManualFormData: jsonmap.JSON{"link": "https://example.com/post/1"},
-				SnapshotRate: "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
+				SnapshotRate:   "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
 				SnapshotCost: test.snapshotCost, SnapshotSell: test.snapshotSell,
 			})
 			if err != nil || result == nil || result.OK || result.ErrorCode != test.wantCode || addCalled {
@@ -365,7 +365,7 @@ func TestSMMPanelAdapterMalformedAddResponseIsUnknown(t *testing.T) {
 	_, err = adapter.CreateOrder(context.Background(), CreateUpstreamOrderReq{
 		SKUID: 36, Quantity: 1000,
 		ManualFormData: jsonmap.JSON{"link": "https://example.com/post/1"},
-		SnapshotRate: "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
+		SnapshotRate:   "10.85", SnapshotPricingUnit: constants.PricingUnitPer1000,
 		SnapshotCost: "10.85", SnapshotSell: "21.70",
 	})
 	if !errors.Is(err, ErrSMMPanelOrderUnknown) || addCalls != 1 {

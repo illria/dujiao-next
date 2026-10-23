@@ -240,7 +240,7 @@ func TestSubmitToUpstream_SMMFailureBecomesUnknownWithoutRollbackOrRetry(t *test
 	connSvc := newTestSiteConnectionService(db, "test-key", t.TempDir())
 	conn, err := connSvc.Create(siteconnectionapp.CreateInput{
 		Name: "test-smm", BaseURL: server.URL,
-		Protocol: constants.ConnectionProtocolSMMPanel,
+		Protocol:       constants.ConnectionProtocolSMMPanel,
 		SourceCurrency: "USD", SourceToUSDT: "1",
 		MarkupMultiplier: "2", MinimumOrderAmountUSDT: "1",
 		DefaultPricingUnit: constants.PricingUnitPer1000,

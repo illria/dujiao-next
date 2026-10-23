@@ -459,16 +459,16 @@ func (s *Service) newAdapter(conn *siteconnectiondomain.Connection) (upstream.Ad
 		return nil, siteconnectioncontract.ErrNotFound
 	}
 	adapterConn := &siteconnectiondomain.Connection{
-		BaseURL:               conn.BaseURL,
-		ApiKey:                conn.ApiKey,
-		Protocol:              conn.Protocol,
-		SecretRef:             conn.SecretRef,
-		SourceCurrency:        conn.SourceCurrency,
-		SourceToUSDT:          conn.SourceToUSDT,
-		ExchangeRateBufferBPS: conn.ExchangeRateBufferBPS,
-		MarkupMultiplier:      conn.MarkupMultiplier,
+		BaseURL:                conn.BaseURL,
+		ApiKey:                 conn.ApiKey,
+		Protocol:               conn.Protocol,
+		SecretRef:              conn.SecretRef,
+		SourceCurrency:         conn.SourceCurrency,
+		SourceToUSDT:           conn.SourceToUSDT,
+		ExchangeRateBufferBPS:  conn.ExchangeRateBufferBPS,
+		MarkupMultiplier:       conn.MarkupMultiplier,
 		MinimumOrderAmountUSDT: conn.MinimumOrderAmountUSDT,
-		DefaultPricingUnit:    conn.DefaultPricingUnit,
+		DefaultPricingUnit:     conn.DefaultPricingUnit,
 	}
 	if !isEnvironmentBackedProtocol(conn.Protocol) {
 		decrypted, err := s.decryptSecret(conn)

@@ -74,15 +74,15 @@ func (s *Service) SubmitToUpstream(procurementOrderID uint) error {
 
 	// 构建上游请求
 	req := procurementcontract.CreateOrderRequest{
-		SKUID:             upstreamSKUID,
-		Quantity:          item.Quantity,
-		SnapshotRate:      procOrder.UpstreamRateSnapshot,
+		SKUID:               upstreamSKUID,
+		Quantity:            item.Quantity,
+		SnapshotRate:        procOrder.UpstreamRateSnapshot,
 		SnapshotPricingUnit: procOrder.UpstreamPricingUnit,
-		SnapshotCost:      procOrder.UpstreamCostSnapshot,
-		SnapshotSell:      procOrder.UpstreamSellSnapshot,
-		DownstreamOrderNo: localOrder.OrderNo,
-		TraceID:           procOrder.TraceID,
-		CallbackURL:       connection.CallbackURL(),
+		SnapshotCost:        procOrder.UpstreamCostSnapshot,
+		SnapshotSell:        procOrder.UpstreamSellSnapshot,
+		DownstreamOrderNo:   localOrder.OrderNo,
+		TraceID:             procOrder.TraceID,
+		CallbackURL:         connection.CallbackURL(),
 	}
 
 	// 传递人工表单数据（如有）

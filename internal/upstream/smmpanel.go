@@ -42,14 +42,14 @@ var (
 	// ErrSMMPanelInvalidRequest 表示请求或响应格式不合法。
 	ErrSMMPanelInvalidRequest = errors.New("smm panel request is invalid")
 	// ErrSMMPanelReadOnly 表示未显式开启真实 action=add。
-	ErrSMMPanelReadOnly             = errors.New("smm panel write operation is disabled")
-	ErrSMMPanelServiceNotFound      = errors.New("smm panel service not found")
-	ErrSMMPanelLinkInvalid          = errors.New("smm panel target link is invalid")
-	ErrSMMPanelSnapshotMissing      = errors.New("smm panel price snapshot is missing")
-	ErrSMMPanelPriceChanged         = errors.New("smm panel price changed after snapshot")
-	ErrSMMPanelUnprofitable         = errors.New("smm panel order is no longer profitable")
-	ErrSMMPanelOrderUnknown         = errors.New("smm panel order submission outcome is unknown")
-	ErrSMMPanelPricingUnavailable   = errors.New("smm panel pricing configuration is unavailable")
+	ErrSMMPanelReadOnly           = errors.New("smm panel write operation is disabled")
+	ErrSMMPanelServiceNotFound    = errors.New("smm panel service not found")
+	ErrSMMPanelLinkInvalid        = errors.New("smm panel target link is invalid")
+	ErrSMMPanelSnapshotMissing    = errors.New("smm panel price snapshot is missing")
+	ErrSMMPanelPriceChanged       = errors.New("smm panel price changed after snapshot")
+	ErrSMMPanelUnprofitable       = errors.New("smm panel order is no longer profitable")
+	ErrSMMPanelOrderUnknown       = errors.New("smm panel order submission outcome is unknown")
+	ErrSMMPanelPricingUnavailable = errors.New("smm panel pricing configuration is unavailable")
 )
 
 const smmPanelOrderingEnabledEnv = "SMMPANEL_ORDERING_ENABLED"
@@ -86,17 +86,17 @@ type SMMPanelBalance struct {
 // 后支持 add/status。API Key 只存在内存中，来源是 SecretRef 指向的环境变量；
 // 连接模型和数据库不保存真实 Key。
 type SMMPanelAdapter struct {
-	baseURL               string
-	secretRef             string
-	apiKey                string
-	sourceCurrency        string
-	sourceToUSDT          decimal.Decimal
-	exchangeRateBufferBPS int
-	markupMultiplier      decimal.Decimal
+	baseURL                string
+	secretRef              string
+	apiKey                 string
+	sourceCurrency         string
+	sourceToUSDT           decimal.Decimal
+	exchangeRateBufferBPS  int
+	markupMultiplier       decimal.Decimal
 	minimumOrderAmountUSDT decimal.Decimal
-	orderingEnabled       bool
-	uploadsDir            string
-	client                *http.Client
+	orderingEnabled        bool
+	uploadsDir             string
+	client                 *http.Client
 }
 
 var _ Adapter = (*SMMPanelAdapter)(nil)

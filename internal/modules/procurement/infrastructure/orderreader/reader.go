@@ -63,14 +63,14 @@ func MapOrder(order orderdomain.Order) procurementdomain.LocalOrder {
 		result.Items = append(result.Items, procurementdomain.LocalOrderItem{
 			ProductID: item.ProductID, SKUID: item.SKUID,
 			Title: item.TitleJSON, SKUSnapshot: item.SKUSnapshotJSON,
-			CostPrice:               item.CostPrice,
-			UpstreamRateSnapshot:    item.UpstreamRateSnapshot,
-			UpstreamPricingUnit:     item.UpstreamPricingUnit,
-			UpstreamCostSnapshot:    item.UpstreamCostSnapshot,
-			UpstreamSellSnapshot:    item.UpstreamSellSnapshot,
-			Quantity:                 item.Quantity,
-			TotalPrice:               item.TotalPrice,
-			FulfillmentType: item.FulfillmentType, ManualFormSubmissionJSON: item.ManualFormSubmissionJSON,
+			CostPrice:            item.CostPrice,
+			UpstreamRateSnapshot: item.UpstreamRateSnapshot,
+			UpstreamPricingUnit:  item.UpstreamPricingUnit,
+			UpstreamCostSnapshot: item.UpstreamCostSnapshot,
+			UpstreamSellSnapshot: item.UpstreamSellSnapshot,
+			Quantity:             item.Quantity,
+			TotalPrice:           item.TotalPrice,
+			FulfillmentType:      item.FulfillmentType, ManualFormSubmissionJSON: item.ManualFormSubmissionJSON,
 		})
 	}
 	for _, child := range order.Children {

@@ -25,10 +25,10 @@ import (
 	userdomain "github.com/dujiao-next/internal/modules/identity/user/domain"
 
 	"github.com/dujiao-next/internal/constants"
-	mappingapp "github.com/dujiao-next/internal/modules/catalog/mapping/application"
-	productdomain "github.com/dujiao-next/internal/modules/catalog/product/domain"
 	captchaapp "github.com/dujiao-next/internal/modules/captcha/application"
 	captchahttp "github.com/dujiao-next/internal/modules/captcha/transport/http"
+	mappingapp "github.com/dujiao-next/internal/modules/catalog/mapping/application"
+	productdomain "github.com/dujiao-next/internal/modules/catalog/product/domain"
 	couponcontract "github.com/dujiao-next/internal/modules/coupon/contract"
 	ordertransport "github.com/dujiao-next/internal/modules/order/transport/http"
 	orderriskcontract "github.com/dujiao-next/internal/modules/orderrisk/contract"
