@@ -39,7 +39,9 @@ func TestUpayAdapterTypeAndConfig(t *testing.T) {
 	if err := a.ValidateConfig(adapterConfig("https://api.example"), constants.PaymentChannelTypeUsdtTrc20); err != nil {
 		t.Fatalf("ValidateConfig() error = %v", err)
 	}
-	if err := a.ValidateConfig(jsonmap.JSON{"chain_type": "2"}, constants.PaymentChannelTypeUsdtTrc20); !errors.Is(err, paymentcontract.ErrGatewayUnsupportedChannel) {
+	badChainConfig := adapterConfig("https://api.example")
+	badChainConfig["chain_type"] = "2"
+	if err := a.ValidateConfig(badChainConfig, constants.PaymentChannelTypeUsdtTrc20); !errors.Is(err, paymentcontract.ErrGatewayUnsupportedChannel) {
 		t.Fatalf("ERC20 config error = %v, want unsupported channel", err)
 	}
 }

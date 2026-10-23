@@ -271,7 +271,7 @@ func TestHandleSyncCallbackQueriesUPayBeforeMarkingPaid(t *testing.T) {
 	}
 	stub := &upayCallbackGatewayStub{
 		callback: &paymentcontract.GatewayCallbackResult{
-			OrderNo:     "MERCHANT-20261024002",
+			OrderNo:     "MERCHANT-20261024001",
 			ProviderRef: "UP-ORDER-2",
 			Status:      constants.PaymentStatusSuccess,
 			Amount:      money.FromDecimal(decimal.RequireFromString("999.99")),
