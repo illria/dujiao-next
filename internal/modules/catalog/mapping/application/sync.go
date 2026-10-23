@@ -883,6 +883,13 @@ func (s *Service) SyncProdSellerCatalog(connectionID uint) error {
 	if err != nil {
 		return err
 	}
+	if len(result.Products) == 0 && len(existing) > 0 {
+		return errors.New("prodseller returned an empty catalog; refusing to mark existing products deleted")
+	}
+	products, err := enrichProdSellerProducts(external, result.Products)
+	if err != nil {
+		return err
+	}
 	byExternalID := make(map[string]*mappingdomain.Mapping, len(existing))
 	for i := range existing {
 		if existing[i].UpstreamProductExternalID != nil && strings.TrimSpace(*existing[i].UpstreamProductExternalID) != "" {
@@ -895,8 +902,8 @@ func (s *Service) SyncProdSellerCatalog(connectionID uint) error {
 		return err
 	}
 	now := time.Now()
-	seen := make(map[string]struct{}, len(result.Products))
-	for _, product := range result.Products {
+	seen := make(map[string]struct{}, len(products))
+	for _, product := range products {
 		externalID := strings.TrimSpace(product.ID)
 		if externalID == "" {
 			return errors.New("prodseller returned a product without an id")
@@ -933,6 +940,53 @@ func (s *Service) SyncProdSellerCatalog(connectionID uint) error {
 		}
 	}
 	return nil
+}
+
+// enrichProdSellerProducts combines the catalog response with the detail
+// response for every product. ProdSeller documents the list endpoint's
+// inStock flag but exposes the exact quantity only on GET /products/:id.
+// Fetch all details before writing any local record so a partial detail fetch
+// cannot silently leave the catalog with mixed-age stock values.
+func enrichProdSellerProducts(external upstream.ExternalCatalogAdapter, products []upstream.ProdSellerProduct) ([]upstream.ProdSellerProduct, error) {
+	enriched := make([]upstream.ProdSellerProduct, len(products))
+	copy(enriched, products)
+	for i := range enriched {
+		externalID := strings.TrimSpace(enriched[i].ID)
+		if externalID == "" {
+			return nil, errors.New("prodseller returned a product without an id")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		detail, err := external.GetExternalProduct(ctx, externalID)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("fetch prodseller product %s details: %w", externalID, err)
+		}
+		if detail == nil {
+			return nil, fmt.Errorf("prodseller returned an empty detail for product %s", externalID)
+		}
+
+		// The detail endpoint is authoritative for price, delivery flags and
+		// stock. Its response omits inStock, so derive that flag from the
+		// exact stock quantity when present; otherwise preserve the list flag.
+		if detail.Price.IsPositive() {
+			enriched[i].Price = detail.Price
+		}
+		if detail.PublicPrice.IsPositive() {
+			enriched[i].PublicPrice = detail.PublicPrice
+		}
+		if detail.Stock != nil {
+			enriched[i].Stock = detail.Stock
+			available := *detail.Stock != 0
+			enriched[i].InStock = &available
+		} else if detail.InStock != nil {
+			enriched[i].InStock = detail.InStock
+		}
+		if strings.TrimSpace(detail.Delivery.Type) != "" {
+			enriched[i].Delivery = detail.Delivery
+		}
+		enriched[i].RequiresEmailActivation = detail.RequiresEmailActivation
+	}
+	return enriched, nil
 }
 
 func (s *Service) ensureProdSellerCategory() (uint, error) {
@@ -1007,11 +1061,8 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		FulfillmentType:  constants.FulfillmentTypeUpstream,
 		ManualStockTotal: 0,
 		IsMapped:         true,
-		IsActive:         false,
+		IsActive:         supported && source.IsAvailable(),
 		SortOrder:        0,
-	}
-	if !supported {
-		product.IsActive = false
 	}
 
 	if s.transactions == nil {
@@ -1028,7 +1079,7 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 			SpecValuesJSON:  jsonmap.JSON{},
 			PriceAmount:     money.FromDecimal(localPrice),
 			CostPriceAmount: money.FromDecimal(convertCurrency(sourcePrice, conn.ExchangeRate).Round(2)),
-			IsActive:        supported && source.InStock,
+			IsActive:        supported && source.IsAvailable(),
 			SortOrder:       0,
 		}
 		if err := repos.SKUs.Create(localSKU); err != nil {
@@ -1045,7 +1096,7 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 			UpstreamSKUExternalID: &skuExternalID,
 			UpstreamPrice:         money.FromDecimal(sourcePrice.Round(2)),
 			UpstreamStock:         prodSellerStock(source),
-			UpstreamIsActive:      source.InStock,
+			UpstreamIsActive:      source.IsAvailable(),
 			StockSyncedAt:         &now,
 		}); err != nil {
 			return fmt.Errorf("create sku mapping: %w", err)
@@ -1088,7 +1139,7 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 			ProductID:      mapping.LocalProductID,
 			SKUCode:        upstream.DefaultExternalSKUCode,
 			SpecValuesJSON: jsonmap.JSON{},
-			IsActive:       prodSellerProductSupported(source) && source.InStock,
+			IsActive:       prodSellerProductSupported(source) && source.IsAvailable(),
 			SortOrder:      0,
 		}
 		if err := s.skus.Create(newSKU); err != nil {
@@ -1116,7 +1167,7 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 		localSKU.PriceAmount = money.FromDecimal(priceForMapping(conn, mapping, source.Price, decimal.Zero))
 	}
 	localSKU.CostPriceAmount = money.FromDecimal(convertCurrency(source.Price, conn.ExchangeRate).Round(2))
-	localSKU.IsActive = prodSellerProductSupported(source) && source.InStock
+	localSKU.IsActive = prodSellerProductSupported(source) && source.IsAvailable()
 	if err := s.skus.Update(localSKU); err != nil {
 		return err
 	}
@@ -1129,7 +1180,7 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	skuMapping.UpstreamSKUExternalID = &skuExternalID
 	skuMapping.UpstreamPrice = money.FromDecimal(source.Price.Round(2))
 	skuMapping.UpstreamStock = prodSellerStock(source)
-	skuMapping.UpstreamIsActive = source.InStock
+	skuMapping.UpstreamIsActive = source.IsAvailable()
 	skuMapping.StockSyncedAt = &now
 	if skuMapping.ID == 0 {
 		if err := s.skuMappings.Create(skuMapping); err != nil {
@@ -1145,9 +1196,7 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	localProduct.Images = jsonslice.Strings(nonEmptySourceImage(source.ImageURL))
 	localProduct.IsMapped = true
 	localProduct.FulfillmentType = constants.FulfillmentTypeUpstream
-	if !prodSellerProductSupported(source) || !source.InStock {
-		localProduct.IsActive = false
-	}
+	localProduct.IsActive = prodSellerProductSupported(source) && source.IsAvailable()
 	if shouldAutoSyncPrice(mapping, conn) {
 		s.recalcProductPrice(localProduct)
 	} else if err := s.products.Update(localProduct); err != nil {
@@ -1241,13 +1290,10 @@ func prodSellerProductSupported(product *upstream.ProdSellerProduct) bool {
 }
 
 func prodSellerStock(product *upstream.ProdSellerProduct) int {
-	if product == nil || !product.InStock {
+	if product == nil {
 		return 0
 	}
-	if product.Stock == nil {
-		return -1
-	}
-	return *product.Stock
+	return product.StockQuantity()
 }
 
 func nonEmptySourceImage(imageURL string) []string {
