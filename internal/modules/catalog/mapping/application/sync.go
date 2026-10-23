@@ -908,9 +908,12 @@ func (s *Service) SyncProdSellerCatalog(connectionID uint) error {
 			}
 			continue
 		}
-		if _, err := s.createProdSellerProduct(connectionID, categoryID, conn, &product, now); err != nil {
+		created, err := s.createProdSellerProduct(connectionID, categoryID, conn, &product, now)
+		if err != nil {
 			return fmt.Errorf("create prodseller product %s: %w", externalID, err)
 		}
+		// 让同一批响应中的重复外部 ID 复用刚创建的映射，避免重复创建本地商品。
+		byExternalID[externalID] = created
 	}
 
 	// 只有完整 GET /products 成功后，才把列表中消失的旧映射视为删除。
@@ -1018,6 +1021,7 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		if err := repos.Products.Create(product); err != nil {
 			return fmt.Errorf("create local product: %w", err)
 		}
+		mapping.LocalProductID = product.ID
 		localSKU := &productdomain.ProductSKU{
 			ProductID:       product.ID,
 			SKUCode:         upstream.DefaultExternalSKUCode,
