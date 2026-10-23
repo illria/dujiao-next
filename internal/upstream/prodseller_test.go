@@ -83,7 +83,7 @@ func TestProdSellerProductAvailabilityResolution(t *testing.T) {
 		product   ProdSellerProduct
 		available bool
 		quantity  int
-	} {
+	}{
 		{name: "explicit in stock", product: ProdSellerProduct{InStock: &trueValue}, available: true, quantity: -1},
 		{name: "detail quantity overrides list flag", product: ProdSellerProduct{InStock: &falseValue, Stock: &stock}, available: true, quantity: 47},
 		{name: "detail quantity", product: ProdSellerProduct{Stock: &stock}, available: true, quantity: 47},
