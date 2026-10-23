@@ -126,7 +126,11 @@ func TestUpayAdapterQueryPaymentUsesActualCryptoAndNeverCreatesOrder(t *testing.
 	}))
 	defer server.Close()
 
-	result, err := NewUpayAdapter().QueryPayment(context.Background(), adapterConfig(server.URL), "UP-ORDER-1")
+	capturer, ok := NewUpayAdapter().(paymentcontract.GatewayCapturer)
+	if !ok {
+		t.Fatal("UPay adapter does not expose payment capture")
+	}
+	result, err := capturer.QueryPayment(context.Background(), adapterConfig(server.URL), "UP-ORDER-1")
 	if err != nil {
 		t.Fatalf("QueryPayment() error = %v", err)
 	}
