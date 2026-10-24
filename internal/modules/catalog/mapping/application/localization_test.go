@@ -1,4 +1,5 @@
 package application
+
 import (
 	"testing"
 
@@ -21,7 +22,7 @@ func TestProdSellerLocalizedTextUsesSupportedLocaleKeys(t *testing.T) {
 func TestPreserveProdSellerLocalizedTextKeepsManualContentAndMigratesLegacyEnglish(t *testing.T) {
 	existing := jsonmap.JSON{
 		constants.LocaleZhCN: "中文标题",
-		"en":               "English title",
+		"en":                 "English title",
 	}
 
 	got := preserveProdSellerLocalizedText(existing, "New upstream title")
