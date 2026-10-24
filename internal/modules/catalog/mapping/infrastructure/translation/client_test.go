@@ -107,6 +107,35 @@ func TestValidateTranslationRejectsCompressedDescription(t *testing.T) {
 	}
 }
 
+func TestValidateTranslationAllowsLiteralAngleBracketBullets(t *testing.T) {
+	request := mappingcontract.ProductTranslationRequest{
+		Name:        "Gemini Pro 18Months (link)",
+		Description: "> 18 Months Plan\n-> Full Family Account. It's Not an Invite !",
+	}
+	result := mappingcontract.ProductTranslationResult{
+		TitleZhCN:       "Gemini Pro 18个月（链接）",
+		TitleZhTW:       "Gemini Pro 18個月（連結）",
+		DescriptionZhCN: "> 18个月套餐\n-> 完整家庭账户。这不是邀请！",
+		DescriptionZhTW: "> 18個月方案\n-> 完整家庭帳戶。這不是邀請！",
+	}
+	if err := validateTranslation(request, result); err != nil {
+		t.Fatalf("validateTranslation rejected literal bullets: %v", err)
+	}
+}
+
+func TestValidateTranslationRejectsHTMLMarkup(t *testing.T) {
+	request := mappingcontract.ProductTranslationRequest{Name: "title", Description: "plain description"}
+	result := mappingcontract.ProductTranslationResult{
+		TitleZhCN:       "标题",
+		TitleZhTW:       "標題",
+		DescriptionZhCN: "<p>说明</p>",
+		DescriptionZhTW: "说明",
+	}
+	if err := validateTranslation(request, result); err != ErrUnsupportedText {
+		t.Fatalf("validateTranslation error = %v, want ErrUnsupportedText", err)
+	}
+}
+
 func TestNewFromEnvUsesConfiguredProviderWithoutPersistingCredential(t *testing.T) {
 	t.Setenv(APIKeyEnv, "environment-only-key")
 	t.Setenv(BaseURLEnv, "https://example.invalid/v1")
