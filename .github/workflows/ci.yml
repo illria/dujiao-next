@@ -172,7 +172,7 @@ jobs:
       # 只有带 fullstack tag 才会编译 embed_fullstack.go，
       # 默认构建覆盖不到，必须在这里单独验证一次完整的嵌入链路。
       - name: Build fullstack binary
-        run: go build -tags release,fullstack -o server ./cmd/server
+        run: CGO_ENABLED=0 go build -tags release,fullstack -o server ./cmd/server
 
       - name: Package fullstack server
         run: |
