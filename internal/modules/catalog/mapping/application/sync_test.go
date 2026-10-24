@@ -22,9 +22,9 @@ type fakeSettingsProvider struct {
 }
 
 type fakeProductTranslator struct {
-	result       mappingcontract.ProductTranslationResult
-	calls        int
-	sawDeadline  bool
+	result      mappingcontract.ProductTranslationResult
+	calls       int
+	sawDeadline bool
 }
 
 func (f *fakeProductTranslator) Translate(ctx context.Context, _ mappingcontract.ProductTranslationRequest) (mappingcontract.ProductTranslationResult, error) {
