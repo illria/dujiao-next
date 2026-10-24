@@ -474,3 +474,19 @@ func TestNeedsProdSellerTranslationInvalidatesLegacyTranslationHash(t *testing.T
 		t.Fatal("legacy translation hash must trigger one-time faithful retranslation")
 	}
 }
+
+func TestNeedsProdSellerTranslationRetriesLegacyGenericDescription(t *testing.T) {
+	stock := true
+	source := &upstream.ProdSellerProduct{Name: "Title", Description: "Detailed upstream description", InStock: &stock}
+	product := &productdomain.Product{
+		TitleJSON: jsonmap.JSON{constants.LocaleZhCN: "中文", constants.LocaleZhTW: "繁中"},
+		DescriptionJSON: jsonmap.JSON{
+			constants.LocaleZhCN: "交付格式：自动发放账号与登录信息。\n有效期：3个月。\n使用提示：请按官方流程登录。",
+			constants.LocaleZhTW: "交付格式：自動發放帳號與登入資訊。\n有效期：3個月。\n使用提示：請按官方流程登入。",
+		},
+	}
+	mapping := &mappingdomain.Mapping{UpstreamNameHash: prodSellerTextHash(source.Name), UpstreamDescriptionHash: prodSellerTextHash(source.Description)}
+	if !needsProdSellerTranslation(mapping, product, source) {
+		t.Fatal("legacy generic description must trigger faithful retranslation")
+	}
+}
