@@ -139,6 +139,9 @@ export interface WalletRechargeResult {
     chain_amount?: string
     chain?: string
     token_id?: string
+    crypto_amount?: string
+    crypto_currency?: string
+    exchange_rate?: string
     expires_at?: string
     status?: string
 }
@@ -488,6 +491,9 @@ export interface PaymentCreateResult {
     chain_amount?: string
     chain?: string
     token_id?: string
+    crypto_amount?: string
+    crypto_currency?: string
+    exchange_rate?: string
     expires_at?: string
 }
 

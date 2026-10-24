@@ -3,6 +3,7 @@ package paymentcallbackhttp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -158,13 +159,54 @@ func (h *Handler) handleBepusdtCallback(c *gin.Context) bool {
 	})
 }
 
+func (h *Handler) handleUpayCallback(c *gin.Context) bool {
+	body, ok := readCallbackBody(c)
+	if !ok {
+		return false
+	}
+	var probe struct {
+		AppID           string `json:"appId"`
+		OrderNo         string `json:"orderNo"`
+		MerchantOrderNo string `json:"merchantOrderNo"`
+		Signature       string `json:"signature"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		ginutil.RequestLog(c).Debugw("upay_callback_parse_failed", "error", err)
+		return false
+	}
+	if strings.TrimSpace(probe.AppID) == "" && strings.TrimSpace(probe.OrderNo) == "" && strings.TrimSpace(probe.MerchantOrderNo) == "" {
+		ginutil.RequestLog(c).Debugw("upay_callback_not_matched", "reason", "missing_upay_identity_fields")
+		return false
+	}
+	ginutil.RequestLog(c).Infow("upay_callback_received",
+		"order_no", probe.MerchantOrderNo,
+		"provider_ref", probe.OrderNo,
+		"has_signature", strings.TrimSpace(probe.Signature) != "",
+		"body_size", len(body),
+	)
+	return h.processBodyCallback(c, body, bodyCallback{
+		providerType: constants.PaymentProviderUpay,
+		logPrefix:    "upay",
+		orderNo:      probe.MerchantOrderNo,
+		providerRef:  probe.OrderNo,
+		successBody:  "OK",
+		failBody:     "FAIL",
+		contentType:  "text/plain; charset=utf-8",
+		alertType:    "upay_callback_handle_failed",
+	})
+}
+
 func readCallbackBody(c *gin.Context) ([]byte, bool) {
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			c.Set(callbackBodyTooLargeKey, true)
+		}
 		return nil, false
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
-	return body, len(strings.TrimSpace(string(body))) > 0
+	return body, len(bytes.TrimSpace(body)) > 0
 }
 
 func (h *Handler) processBodyCallback(c *gin.Context, body []byte, callback bodyCallback) bool {

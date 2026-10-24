@@ -1,10 +1,12 @@
 package presenter
 
 import (
+	"strings"
 	"time"
 
 	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
 
+	"github.com/dujiao-next/internal/constants"
 	"github.com/dujiao-next/internal/shared/money"
 )
 
@@ -32,6 +34,9 @@ type CreatePaymentResp struct {
 	ChainAmount     string       `json:"chain_amount,omitempty"`
 	Chain           string       `json:"chain,omitempty"`
 	TokenID         string       `json:"token_id,omitempty"`
+	CryptoAmount    string       `json:"crypto_amount,omitempty"`
+	CryptoCurrency  string       `json:"crypto_currency,omitempty"`
+	ExchangeRate    string       `json:"exchange_rate,omitempty"`
 	ExpiresAt       *time.Time   `json:"expires_at,omitempty"`
 	ChannelName     string       `json:"channel_name,omitempty"`
 }
@@ -74,6 +79,10 @@ func NewCreatePaymentResp(result *CreatePaymentResultView) CreatePaymentResp {
 		resp.ChainAmount = info.ChainAmount
 		resp.Chain = info.Chain
 		resp.TokenID = info.TokenID
+		facts := upayPaymentFacts(result.Payment)
+		resp.CryptoAmount = facts.amount
+		resp.CryptoCurrency = facts.currency
+		resp.ExchangeRate = facts.rate
 	}
 	if result.Channel != nil {
 		resp.ChannelName = result.Channel.Name
@@ -96,6 +105,9 @@ type LatestPaymentResp struct {
 	ChainAmount     string       `json:"chain_amount,omitempty"`
 	Chain           string       `json:"chain,omitempty"`
 	TokenID         string       `json:"token_id,omitempty"`
+	CryptoAmount    string       `json:"crypto_amount,omitempty"`
+	CryptoCurrency  string       `json:"crypto_currency,omitempty"`
+	ExchangeRate    string       `json:"exchange_rate,omitempty"`
 	ExpiresAt       *time.Time   `json:"expires_at"`
 	PayableAmount   money.Amount `json:"payable_amount"`
 	// Currency 是 PayableAmount 的实际币种，见 CreatePaymentResp.Currency 注释。
@@ -121,6 +133,9 @@ func NewLatestPaymentResp(payment *paymentdomain.Payment, orderNo string) Latest
 		ChainAmount:     info.ChainAmount,
 		Chain:           info.Chain,
 		TokenID:         info.TokenID,
+		CryptoAmount:    upayPaymentFacts(payment).amount,
+		CryptoCurrency:  upayPaymentFacts(payment).currency,
+		ExchangeRate:    upayPaymentFacts(payment).rate,
 		ExpiresAt:       payment.ExpiredAt,
 		PayableAmount:   payment.Amount,
 		Currency:        payment.Currency,
@@ -129,4 +144,21 @@ func NewLatestPaymentResp(payment *paymentdomain.Payment, orderNo string) Latest
 	}
 	// 排除：OrderID、FeeRate、FixedFee、Currency、Status、
 	// ProviderRef、GatewayOrderNo、ProviderPayload、CreatedAt、UpdatedAt、PaidAt、CallbackAt
+}
+
+type upayPaymentFactValues struct {
+	amount   string
+	currency string
+	rate     string
+}
+
+func upayPaymentFacts(payment *paymentdomain.Payment) upayPaymentFactValues {
+	if payment == nil || !strings.EqualFold(strings.TrimSpace(payment.ProviderType), constants.PaymentProviderUpay) {
+		return upayPaymentFactValues{}
+	}
+	return upayPaymentFactValues{
+		amount:   readPayloadString(payment.ProviderPayload, "upay_crypto_amount"),
+		currency: readPayloadString(payment.ProviderPayload, "upay_crypto_currency"),
+		rate:     readPayloadString(payment.ProviderPayload, "upay_exchange_rate"),
+	}
 }

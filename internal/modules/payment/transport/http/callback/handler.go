@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	paymentdomain "github.com/dujiao-next/internal/modules/payment/domain"
 
@@ -15,6 +17,54 @@ import (
 )
 
 const maxCallbackBodyBytes = 1 << 20
+
+const (
+	callbackRateLimitWindow  = time.Minute
+	callbackRateLimitCount   = 120
+	callbackRateLimitMaxKeys = 4096
+)
+
+type callbackRateLimitEntry struct {
+	windowStart time.Time
+	count       int
+}
+
+type callbackRateLimiter struct {
+	mu      sync.Mutex
+	entries map[string]callbackRateLimitEntry
+}
+
+func (l *callbackRateLimiter) allow(clientIP string, now time.Time) bool {
+	key := strings.TrimSpace(clientIP)
+	if key == "" {
+		key = "unknown"
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.entries == nil {
+		l.entries = make(map[string]callbackRateLimitEntry)
+	}
+	for existingKey, entry := range l.entries {
+		if now.Sub(entry.windowStart) >= callbackRateLimitWindow {
+			delete(l.entries, existingKey)
+		}
+	}
+	if len(l.entries) >= callbackRateLimitMaxKeys {
+		return false
+	}
+	entry, ok := l.entries[key]
+	if !ok || now.Sub(entry.windowStart) >= callbackRateLimitWindow {
+		l.entries[key] = callbackRateLimitEntry{windowStart: now, count: 1}
+		return true
+	}
+	if entry.count >= callbackRateLimitCount {
+		return false
+	}
+	entry.count++
+	l.entries[key] = entry
+	return true
+}
 
 // WechatWebhookInput is the transport-owned input for a WeChat callback.
 type WechatWebhookInput struct {
@@ -48,10 +98,11 @@ type ExceptionAlerter interface {
 
 // Handler dispatches the shared synchronous callback endpoint to its provider protocol.
 type Handler struct {
-	service  Service
-	payments PaymentLookup
-	channels ChannelLookup
-	alerts   ExceptionAlerter
+	service   Service
+	payments  PaymentLookup
+	channels  ChannelLookup
+	alerts    ExceptionAlerter
+	rateLimit callbackRateLimiter
 }
 
 func NewHandler(service Service, payments PaymentLookup, channels ChannelLookup, alerts ExceptionAlerter) *Handler {
@@ -63,6 +114,11 @@ func NewHandler(service Service, payments PaymentLookup, channels ChannelLookup,
 
 // PaymentCallback preserves the historical provider detection order on the shared endpoint.
 func (h *Handler) PaymentCallback(c *gin.Context) {
+	if !h.rateLimit.allow(c.ClientIP(), time.Now()) {
+		ginutil.RequestLog(c).Warnw("payment_callback_rate_limited", "client_ip", c.ClientIP())
+		c.AbortWithStatus(http.StatusTooManyRequests)
+		return
+	}
 	if c.Request.Body != nil {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxCallbackBodyBytes)
 	}
@@ -79,10 +135,16 @@ func (h *Handler) PaymentCallback(c *gin.Context) {
 		h.handleTokenPayCallback,
 		h.handleEpusdtCallback,
 		h.handleBepusdtCallback,
+		h.handleUpayCallback,
 	} {
 		if handle(c) {
 			return
 		}
+	}
+	if tooLarge, exists := c.Get(callbackBodyTooLargeKey); exists && tooLarge == true {
+		ginutil.RequestLog(c).Warnw("payment_callback_body_too_large", "body_limit", maxCallbackBodyBytes)
+		c.AbortWithStatus(http.StatusRequestEntityTooLarge)
+		return
 	}
 
 	ginutil.RequestLog(c).Warnw("payment_callback_unrecognized",
@@ -97,6 +159,8 @@ func (h *Handler) PaymentCallback(c *gin.Context) {
 	})
 	c.AbortWithStatus(http.StatusNotFound)
 }
+
+const callbackBodyTooLargeKey = "payment_callback_body_too_large"
 
 func (h *Handler) enqueuePaymentExceptionAlert(c *gin.Context, data jsonmap.JSON) {
 	if h == nil || h.alerts == nil || c == nil || c.Request == nil {

@@ -189,6 +189,16 @@ const dujiaopayConfig = reactive({
   cancel_url: '',
 })
 
+const upayConfig = reactive({
+  gateway_url: 'https://api.upay.ink',
+  app_id: '',
+  app_secret: '',
+  chain_type: '1',
+  fiat_currency: 'USD',
+  notify_url: '',
+  redirect_url: '',
+})
+
 const epayChannelOptions = [
   { value: 'wechat', label: 'admin.paymentChannels.channelTypes.wechat' },
   { value: 'alipay', label: 'admin.paymentChannels.channelTypes.alipay' },
@@ -253,6 +263,9 @@ const formChannelOptions = computed(() => {
   if (form.provider_type === 'okpay') {
     return okpayChannelOptions
   }
+  if (form.provider_type === 'upay') {
+    return [{ value: 'usdt-trc20', label: 'admin.paymentChannels.channelTypes.usdtTrc20' }]
+  }
   return channelOptions
 })
 
@@ -301,6 +314,9 @@ const interactionModeOptions = computed(() => {
       { value: 'qr', label: 'admin.paymentChannels.interactionModes.qr' },
       { value: 'redirect', label: 'admin.paymentChannels.interactionModes.redirect' },
     ]
+  }
+  if (form.provider_type === 'upay') {
+    return [{ value: 'redirect', label: 'admin.paymentChannels.interactionModes.redirect' }]
   }
   if (form.provider_type === 'official' && form.channel_type === 'paypal') {
     return [{ value: 'redirect', label: 'admin.paymentChannels.interactionModes.redirect' }]
@@ -461,6 +477,16 @@ const resetDujiaoPayConfig = () => {
   dujiaopayConfig.cancel_url = 'https://yourdomain.com/pay'
 }
 
+const resetUpayConfig = () => {
+  upayConfig.gateway_url = 'https://api.upay.ink'
+  upayConfig.app_id = ''
+  upayConfig.app_secret = ''
+  upayConfig.chain_type = '1'
+  upayConfig.fiat_currency = 'USD'
+  upayConfig.notify_url = ''
+  upayConfig.redirect_url = ''
+}
+
 const resetAllConfigs = () => {
   resetEpayConfig()
   resetPaypalConfig()
@@ -472,6 +498,7 @@ const resetAllConfigs = () => {
   resetTokenpayConfig()
   resetOkpayConfig()
   resetDujiaoPayConfig()
+  resetUpayConfig()
 }
 
 // --- Apply functions ---
@@ -606,6 +633,16 @@ const applyDujiaoPayConfig = (raw: Record<string, unknown>) => {
   dujiaopayConfig.fiat_currency = String(raw.fiat_currency || 'CNY').toUpperCase()
   dujiaopayConfig.success_url = String(raw.success_url || '')
   dujiaopayConfig.cancel_url = String(raw.cancel_url || '')
+}
+
+const applyUpayConfig = (raw: Record<string, unknown>) => {
+  upayConfig.gateway_url = String(raw.gateway_url || 'https://api.upay.ink')
+  upayConfig.app_id = String(raw.app_id || '')
+  upayConfig.app_secret = String(raw.app_secret || '')
+  upayConfig.chain_type = String(raw.chain_type || '1')
+  upayConfig.fiat_currency = String(raw.fiat_currency || 'USD').toUpperCase()
+  upayConfig.notify_url = String(raw.notify_url || '')
+  upayConfig.redirect_url = String(raw.redirect_url || '')
 }
 
 // --- Build functions ---
@@ -850,6 +887,24 @@ const buildDujiaoPayConfig = () => {
   return config
 }
 
+const buildUpayConfig = () => {
+  const config: Record<string, unknown> = {}
+  const setIfNotEmpty = (key: string, value: string) => {
+    const trimmed = String(value || '').trim()
+    if (trimmed !== '') {
+      config[key] = trimmed
+    }
+  }
+  setIfNotEmpty('gateway_url', upayConfig.gateway_url)
+  setIfNotEmpty('app_id', upayConfig.app_id)
+  setIfNotEmpty('app_secret', upayConfig.app_secret)
+  config.chain_type = '1'
+  config.fiat_currency = 'USD'
+  setIfNotEmpty('notify_url', upayConfig.notify_url)
+  setIfNotEmpty('redirect_url', upayConfig.redirect_url)
+  return config
+}
+
 // token_id 由管理员手动输入，提交前统一规范化，避免大小写或空格写进 channel_type。
 const resolveDujiaopayChannelType = () =>
   dujiaopayConfig.order_mode === 'cashier'
@@ -892,6 +947,8 @@ watch(
       }
     } else if (value === 'tokenpay') {
       form.channel_type = 'usdt'
+    } else if (value === 'upay') {
+      form.channel_type = 'usdt-trc20'
     }
     const allowedInteractionModes = interactionModeOptions.value.map((item) => item.value)
     if (!allowedInteractionModes.includes(form.interaction_mode)) {
@@ -1057,6 +1114,7 @@ watch(
           applyTokenpayConfig(channel.config_json)
           applyOkpayConfig(channel.config_json)
           applyDujiaoPayConfig(channel.config_json)
+          applyUpayConfig(channel.config_json)
           if (channel.provider_type === 'okpay' && !String(form.channel_type || '').trim()) {
             form.channel_type = resolveOkpayChannelTypeFromConfig(channel.config_json)
           }
@@ -1193,6 +1251,11 @@ const handleSubmit = async () => {
       ...configJson,
       ...buildDujiaoPayConfig(),
     }
+  } else if (form.provider_type === 'upay') {
+    configJson = {
+      ...configJson,
+      ...buildUpayConfig(),
+    }
   }
 
   // 专用表单构建器可能会重写同名字段；高级 JSON 中的显式 null
@@ -1214,7 +1277,9 @@ const handleSubmit = async () => {
             ? 'epusdt'
             : form.provider_type === 'dujiaopay'
               ? resolveDujiaopayChannelType()
-          : form.channel_type,
+              : form.provider_type === 'upay'
+                ? 'usdt-trc20'
+                : form.channel_type,
     interaction_mode: form.interaction_mode,
     fee_rate: String(form.fee_rate || '0').trim(),
     fixed_fee: String(form.fixed_fee || '0').trim(),
@@ -1280,10 +1345,11 @@ const closeModal = () => {
                 <SelectItem value="epusdt">{{ t('admin.paymentChannels.providerTypes.epusdt') }}</SelectItem>
                 <SelectItem value="okpay">{{ t('admin.paymentChannels.providerTypes.okpay') }}</SelectItem>
                 <SelectItem value="tokenpay">{{ t('admin.paymentChannels.providerTypes.tokenpay') }}</SelectItem>
+                <SelectItem value="upay">{{ t('admin.paymentChannels.providerTypes.upay') }}</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div v-if="form.provider_type !== 'tokenpay' && form.provider_type !== 'bepusdt' && form.provider_type !== 'epusdt' && form.provider_type !== 'dujiaopay'" class="min-w-0">
+          <div v-if="form.provider_type !== 'tokenpay' && form.provider_type !== 'bepusdt' && form.provider_type !== 'epusdt' && form.provider_type !== 'dujiaopay' && form.provider_type !== 'upay'" class="min-w-0">
             <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.channelType') }}</label>
             <Select v-model="form.channel_type">
               <SelectTrigger class="h-9 w-full">
@@ -1836,6 +1902,41 @@ const closeModal = () => {
             </div>
           </div>
           <div class="mt-3 text-xs text-muted-foreground">{{ t('admin.paymentChannels.modal.okpayHint') }}</div>
+        </div>
+
+        <div v-if="form.provider_type === 'upay'" class="min-w-0 rounded-xl border border-border bg-muted/20 p-4 overflow-hidden">
+          <div class="text-sm font-semibold text-foreground mb-3">{{ t('admin.paymentChannels.modal.upaySection') }}</div>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 [&>*]:min-w-0">
+            <div class="min-w-0 md:col-span-2">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayGatewayUrl') }}</label>
+              <Input v-model="upayConfig.gateway_url" :placeholder="t('admin.paymentChannels.modal.upayGatewayUrlPlaceholder')" />
+            </div>
+            <div class="min-w-0">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayAppId') }}</label>
+              <Input v-model="upayConfig.app_id" :placeholder="t('admin.paymentChannels.modal.upayAppIdPlaceholder')" />
+            </div>
+            <div class="min-w-0">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayAppSecret') }}</label>
+              <Input v-model="upayConfig.app_secret" :placeholder="t('admin.paymentChannels.modal.upayAppSecretPlaceholder')" type="password" autocomplete="new-password" />
+            </div>
+            <div class="min-w-0">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayChainType') }}</label>
+              <Input value="TRC20" readonly />
+            </div>
+            <div class="min-w-0">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayFiatCurrency') }}</label>
+              <Input value="USD" readonly />
+            </div>
+            <div class="min-w-0 md:col-span-2">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayNotifyUrl') }}</label>
+              <Input v-model="upayConfig.notify_url" :placeholder="t('admin.paymentChannels.modal.upayNotifyUrlPlaceholder')" />
+            </div>
+            <div class="min-w-0 md:col-span-2">
+              <label class="block text-xs font-medium text-muted-foreground mb-1.5">{{ t('admin.paymentChannels.modal.upayRedirectUrl') }}</label>
+              <Input v-model="upayConfig.redirect_url" :placeholder="t('admin.paymentChannels.modal.upayRedirectUrlPlaceholder')" />
+            </div>
+          </div>
+          <div class="mt-3 text-xs text-muted-foreground">{{ t('admin.paymentChannels.modal.upayHint') }}</div>
         </div>
 
         <div v-if="form.provider_type === 'dujiaopay'" class="min-w-0 rounded-xl border border-border bg-muted/20 p-4 overflow-hidden">

@@ -120,6 +120,7 @@ const providerTypeLabel = (value?: string) => {
     okpay: t('admin.paymentChannels.providerTypes.okpay'),
     dujiaopay: t('admin.paymentChannels.providerTypes.dujiaopay'),
     tokenpay: t('admin.paymentChannels.providerTypes.tokenpay'),
+    upay: t('admin.paymentChannels.providerTypes.upay'),
   }
   return map[value || ''] || value || '-'
 }
@@ -340,6 +341,7 @@ watch(
               <SelectItem value="epusdt">{{ t('admin.paymentChannels.providerTypes.epusdt') }}</SelectItem>
               <SelectItem value="okpay">{{ t('admin.paymentChannels.providerTypes.okpay') }}</SelectItem>
               <SelectItem value="tokenpay">{{ t('admin.paymentChannels.providerTypes.tokenpay') }}</SelectItem>
+              <SelectItem value="upay">{{ t('admin.paymentChannels.providerTypes.upay') }}</SelectItem>
             </SelectContent>
           </Select>
         </div>

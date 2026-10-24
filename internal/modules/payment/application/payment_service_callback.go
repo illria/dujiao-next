@@ -3,6 +3,7 @@ package application
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	productcontract "github.com/dujiao-next/internal/modules/catalog/product/contract"
@@ -37,10 +38,52 @@ type PaymentCallbackInput struct {
 	verifiedLegacyDujiaoPayCurrency string
 }
 
+// paymentCallbackLockPool serializes callbacks for the same payment inside a
+// process. The transaction-level row lock remains the cross-process guard;
+// this small gate also keeps SQLite's single-connection path deterministic and
+// prevents duplicate post-commit side effects from racing in one process.
+type paymentCallbackLockPool struct {
+	mu    sync.Mutex
+	locks map[uint]*paymentCallbackLock
+}
+
+type paymentCallbackLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (p *paymentCallbackLockPool) acquire(paymentID uint) func() {
+	p.mu.Lock()
+	if p.locks == nil {
+		p.locks = make(map[uint]*paymentCallbackLock)
+	}
+	lock := p.locks[paymentID]
+	if lock == nil {
+		lock = &paymentCallbackLock{}
+		p.locks[paymentID] = lock
+	}
+	lock.refs++
+	p.mu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		p.mu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(p.locks, paymentID)
+		}
+		p.mu.Unlock()
+	}
+}
+
 func (s *PaymentService) HandleCallback(input PaymentCallbackInput) (*paymentdomain.Payment, error) {
 	if input.PaymentID == 0 {
 		return nil, ErrPaymentInvalid
 	}
+	releaseCallbackLock := s.callbackLocks.acquire(input.PaymentID)
+	defer releaseCallbackLock()
+
 	status := normalizePaymentStatus(input.Status)
 	if !isPaymentStatusValid(status) {
 		return nil, ErrPaymentStatusInvalid
@@ -96,6 +139,12 @@ func (s *PaymentService) HandleCallback(input PaymentCallbackInput) (*paymentdom
 		)
 		return nil, ErrPaymentInvalid
 	}
+	if strings.EqualFold(strings.TrimSpace(payment.ProviderType), constants.PaymentProviderUpay) &&
+		status == constants.PaymentStatusSuccess &&
+		payment.Status != constants.PaymentStatusSuccess &&
+		order.Status != constants.OrderStatusPendingPayment {
+		return nil, ErrPaymentManualReview
+	}
 	if err := validateCallbackPaymentFacts(payment, order.OrderNo, status, input); err != nil {
 		return nil, err
 	}
@@ -149,6 +198,9 @@ func validateCallbackPaymentFacts(payment *paymentdomain.Payment, businessOrderN
 	}
 	if !matchesBusinessOrderNo(input.OrderNo, businessOrderNo, payment) {
 		return ErrPaymentInvalid
+	}
+	if strings.EqualFold(strings.TrimSpace(payment.ProviderType), constants.PaymentProviderUpay) {
+		return validateUpayCallbackPaymentFacts(payment, status, input)
 	}
 	currency := strings.TrimSpace(input.Currency)
 	if status == constants.PaymentStatusSuccess {

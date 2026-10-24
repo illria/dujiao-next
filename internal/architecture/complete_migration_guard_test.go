@@ -18,6 +18,9 @@ type packageFileBudget struct {
 // reuse AST helpers. Production packages have no file-budget exceptions.
 var packageFileBudgetOverrides = map[string]packageFileBudget{
 	"internal/architecture": {production: 0, total: 51},
+	// UPay callback verification keeps its focused integration fixtures in a
+	// dedicated file instead of expanding unrelated payment test files.
+	"internal/modules/payment/application": {production: 12, total: 21},
 }
 
 // completedMigrationPaths are deleted compatibility-free entry points. Once a

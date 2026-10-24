@@ -24,6 +24,7 @@ func TestNewPaymentProviderRegistryRegistersEveryAdapter(t *testing.T) {
 		{name: "dujiaopay", providerType: constants.PaymentProviderDujiaoPay, channelType: "fallback-channel", wantType: "dujiaopay:"},
 		{name: "tokenpay", providerType: constants.PaymentProviderTokenpay, channelType: "fallback-channel", wantType: "tokenpay:"},
 		{name: "okpay", providerType: constants.PaymentProviderOkpay, channelType: "fallback-channel", wantType: "okpay:"},
+		{name: "upay", providerType: constants.PaymentProviderUpay, channelType: constants.PaymentChannelTypeUsdtTrc20, wantType: "upay:"},
 	}
 
 	for _, test := range tests {

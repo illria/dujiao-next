@@ -378,6 +378,12 @@
             <div class="text-sm text-muted-foreground space-y-2">
               <div>{{ t('payment.methodLabel') }}：{{ resultChannelName }}</div>
               <div>{{ t('payment.interactionLabel') }}：{{ interactionLabel }}</div>
+              <div v-if="paymentResult.crypto_amount">
+                {{ t('payment.upayCryptoAmount') }}：{{ paymentResult.crypto_amount }} {{ paymentResult.crypto_currency || 'USDT' }}
+              </div>
+              <div v-if="paymentResult.exchange_rate">
+                {{ t('payment.upayExchangeRate') }}：{{ paymentResult.exchange_rate }}
+              </div>
               <div v-if="paymentResult.expires_at">{{ t('payment.expiresAt') }}：{{ formatDate(paymentResult.expires_at)
                 }}</div>
             </div>
