@@ -85,7 +85,7 @@ func TestSyncProdSellerLocalizedTextUpdatesChineseOnlyAfterTranslation(t *testin
 }
 
 func TestNeedsProdSellerTranslationDetectsSourceChangeAndMissingLocale(t *testing.T) {
-	stock := 1
+	stock := true
 	source := &upstream.ProdSellerProduct{Name: "Title", Description: "Description", InStock: &stock}
 	product := &productdomain.Product{TitleJSON: jsonmap.JSON{constants.LocaleZhCN: "中文", constants.LocaleZhTW: "繁中"}, DescriptionJSON: jsonmap.JSON{constants.LocaleZhCN: "说明", constants.LocaleZhTW: "說明"}}
 	mapping := &mappingdomain.Mapping{UpstreamNameHash: prodSellerTextHash(source.Name), UpstreamDescriptionHash: prodSellerTextHash(source.Description)}
