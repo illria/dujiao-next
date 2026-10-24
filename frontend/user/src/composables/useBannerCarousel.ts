@@ -1,9 +1,21 @@
+Warning: fs was declared with const; use let for reassignable variables.
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { bannerAPI } from '../api'
 import { getImageUrl } from '../utils/image'
 import { useLocalized } from './useProduct'
+import fallbackHeroImage from '../assets/home-hero-fallback.png'
+
+const FALLBACK_HOME_BANNER = {
+  id: 'fallback-home-hero',
+  position: 'home_hero',
+  image: fallbackHeroImage,
+  mobile_image: fallbackHeroImage,
+  link_type: 'internal',
+  link_value: '/products',
+  open_in_new_tab: false,
+}
 
 export function useBannerCarousel() {
   const router = useRouter()
@@ -80,24 +92,32 @@ export function useBannerCarousel() {
     const banner = heroBanner.value
     if (!banner) return ''
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
-    if (isMobile && banner.mobile_image) {
-      return getImageUrl(banner.mobile_image)
+    const imagePath = isMobile && banner.mobile_image
+      ? banner.mobile_image
+      : (banner.image || banner.mobile_image || '')
+    if (imagePath === fallbackHeroImage) {
+      return fallbackHeroImage
     }
-    return getImageUrl(banner.image || banner.mobile_image || '')
+    return getImageUrl(imagePath)
   })
 
   const heroBadge = computed(() => {
     if (!heroBanner.value) return t('home.hero.badge')
-    return getLocalizedText(heroBanner.value.title) || t('home.hero.badge')
+    if (heroBanner.value.id === FALLBACK_HOME_BANNER.id) return t('vault.hero.badge')
+    return getLocalizedText(heroBanner.value.badge) || getLocalizedText(heroBanner.value.title) || t('home.hero.badge')
   })
 
   const heroTitle = computed(() => {
     if (!heroBanner.value) return t('home.hero.title')
+    if (heroBanner.value.id === FALLBACK_HOME_BANNER.id) {
+      return `${t('vault.hero.titleLead')}${t('vault.hero.titleHl')}`
+    }
     return getLocalizedText(heroBanner.value.title) || t('home.hero.title')
   })
 
   const heroSubtitle = computed(() => {
     if (!heroBanner.value) return t('home.hero.subtitle')
+    if (heroBanner.value.id === FALLBACK_HOME_BANNER.id) return t('vault.hero.lede')
     return getLocalizedText(heroBanner.value.subtitle) || t('home.hero.subtitle')
   })
 
@@ -110,7 +130,7 @@ export function useBannerCarousel() {
   const hasHeroLink = computed(() => heroLink.value.trim().length > 0)
 
   const heroPrimaryButtonText = computed(() => {
-    if (!hasHeroLink.value) return t('home.hero.cta')
+    if (!hasHeroLink.value || heroLink.value === '/products') return t('home.hero.cta')
     const linkType = String(heroBanner.value?.link_type || '').toLowerCase()
     if (linkType === 'external') {
       return t('common.learnMore')
@@ -137,13 +157,16 @@ export function useBannerCarousel() {
     bannerLoading.value = true
     try {
       const response = await bannerAPI.list({ position: 'home_hero', limit: 5 })
-      banners.value = response.data.data || []
+      const loadedBanners = response.data.data
+      banners.value = Array.isArray(loadedBanners) && loadedBanners.length > 0
+        ? loadedBanners
+        : [FALLBACK_HOME_BANNER]
       currentBannerIndex.value = 0
       startHeroAutoPlay()
     } catch (error) {
-      banners.value = []
+      banners.value = [FALLBACK_HOME_BANNER]
       currentBannerIndex.value = 0
-      stopHeroAutoPlay()
+      startHeroAutoPlay()
       console.error('Failed to load banners:', error)
     } finally {
       bannerLoading.value = false
