@@ -1350,9 +1350,9 @@ func (s *Service) translateProdSellerContent(source *upstream.ProdSellerProduct)
 	if strings.TrimSpace(source.Name) == "" && strings.TrimSpace(source.Description) == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	result, err := s.translator.Translate(ctx, mappingcontract.ProductTranslationRequest{
+	// 翻译客户端负责执行 TRANSLATION_TIMEOUT_SECONDS；这里不能再套一个更短的
+	// 业务层 deadline，否则合法但较慢的模型响应会在客户端超时配置生效前被取消。
+	result, err := s.translator.Translate(context.Background(), mappingcontract.ProductTranslationRequest{
 		Name:        source.Name,
 		Description: source.Description,
 	})

@@ -22,12 +22,16 @@ type fakeSettingsProvider struct {
 }
 
 type fakeProductTranslator struct {
-	result mappingcontract.ProductTranslationResult
-	calls  int
+	result       mappingcontract.ProductTranslationResult
+	calls        int
+	sawDeadline  bool
 }
 
-func (f *fakeProductTranslator) Translate(context.Context, mappingcontract.ProductTranslationRequest) (mappingcontract.ProductTranslationResult, error) {
+func (f *fakeProductTranslator) Translate(ctx context.Context, _ mappingcontract.ProductTranslationRequest) (mappingcontract.ProductTranslationResult, error) {
 	f.calls++
+	if _, ok := ctx.Deadline(); ok {
+		f.sawDeadline = true
+	}
 	return f.result, nil
 }
 
@@ -204,6 +208,9 @@ func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 	}
 	if translator.calls != 1 {
 		t.Fatalf("expected one translation call, got %d", translator.calls)
+	}
+	if translator.sawDeadline {
+		t.Fatal("translation call must not be capped by the old 30-second application deadline")
 	}
 	if products.product.TitleJSON["zh-CN"] != "中文标题" || products.product.DescriptionJSON["zh-CN"] != "中文描述" {
 		t.Fatalf("translated content was not stored: %#v", products.product)

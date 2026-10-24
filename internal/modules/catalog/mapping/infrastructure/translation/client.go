@@ -86,7 +86,7 @@ func translationTimeout() time.Duration {
 // newClient 仅用于包内测试；生产代码不得从配置文件、数据库或连接记录传入密钥。
 func newClient(baseURL, model, apiKey string, httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = &http.Client{Timeout: translationTimeout()}
 	}
 	return &Client{
 		baseURL:    strings.TrimRight(strings.TrimSpace(baseURL), "/"),
