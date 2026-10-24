@@ -1498,3 +1498,26 @@ func prodSellerSlug(connectionID uint, externalID string) string {
 	return fmt.Sprintf("prodseller-%d-%s", connectionID, hex.EncodeToString(hash[:8]))
 }
 func prodSellerFulfillmentType(raw string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), "instant") {
+		return constants.FulfillmentTypeAuto
+	}
+	return constants.FulfillmentTypeManual
+}
+
+func prodSellerProductSupported(product *upstream.ProdSellerProduct) bool {
+	return product != nil && strings.EqualFold(strings.TrimSpace(product.Delivery.Type), "instant") && !product.RequiresEmailActivation
+}
+
+func prodSellerStock(product *upstream.ProdSellerProduct) int {
+	if product == nil {
+		return 0
+	}
+	return product.StockQuantity()
+}
+
+func nonEmptySourceImage(imageURL string) []string {
+	if strings.TrimSpace(imageURL) == "" {
+		return nil
+	}
+	return []string{strings.TrimSpace(imageURL)}
+}
