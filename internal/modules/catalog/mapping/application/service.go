@@ -39,6 +39,7 @@ type Service struct {
 	transactions    mappingcontract.UnitOfWork
 	categoryCreator mappingcontract.CategoryCreator
 	settings        mappingcontract.SettingsProvider
+	translator      mappingcontract.ProductTranslator
 }
 
 func NewService(options Options) (*Service, error) {
@@ -65,6 +66,12 @@ func (s *Service) SetCategoryCreator(creator mappingcontract.CategoryCreator) {
 // SetSettings 注入设置端口（用于读取上游同步动态配置）。
 func (s *Service) SetSettings(settings mappingcontract.SettingsProvider) {
 	s.settings = settings
+}
+
+// SetProductTranslator 注入上游商品文案翻译端口。
+// 未配置翻译环境变量时保持 nil，商品同步仍会继续更新价格、库存和英文原文。
+func (s *Service) SetProductTranslator(translator mappingcontract.ProductTranslator) {
+	s.translator = translator
 }
 
 // GetByID 获取映射详情

@@ -19,6 +19,16 @@ type fakeSettingsProvider struct {
 	interval time.Duration
 }
 
+type fakeProductTranslator struct {
+	result mappingcontract.ProductTranslationResult
+	calls  int
+}
+
+func (f *fakeProductTranslator) Translate(context.Context, mappingcontract.ProductTranslationRequest) (mappingcontract.ProductTranslationResult, error) {
+	f.calls++
+	return f.result, nil
+}
+
 type prodSellerDetailAdapter struct {
 	details map[string]*upstream.ProdSellerProduct
 }
@@ -141,7 +151,14 @@ func (u captureImportUnitOfWork) WithinTransaction(fn func(mappingcontract.Impor
 func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 	products := &captureImportProductRepository{}
 	mappings := &captureImportMappingRepository{}
+	translator := &fakeProductTranslator{result: mappingcontract.ProductTranslationResult{
+		TitleZhCN:       "中文标题",
+		TitleZhTW:       "繁中標題",
+		DescriptionZhCN: "中文描述",
+		DescriptionZhTW: "繁中描述",
+	}}
 	svc := &Service{
+		translator: translator,
 		transactions: captureImportUnitOfWork{repositories: mappingcontract.ImportRepositories{
 			Products:    products,
 			SKUs:        captureImportSKURepository{},
@@ -182,6 +199,15 @@ func TestCreateProdSellerProductBindsMappingToCreatedProduct(t *testing.T) {
 	}
 	if got := created.Product; got != nil {
 		t.Fatalf("expected no preloaded product relation in returned mapping, got %#v", got)
+	}
+	if translator.calls != 1 {
+		t.Fatalf("expected one translation call, got %d", translator.calls)
+	}
+	if products.product.TitleJSON["zh-CN"] != "中文标题" || products.product.DescriptionJSON["zh-CN"] != "中文描述" {
+		t.Fatalf("translated content was not stored: %#v", products.product)
+	}
+	if created.UpstreamNameHash == "" || created.UpstreamDescriptionHash == "" {
+		t.Fatalf("successful translation must persist source hashes: %#v", created)
 	}
 }
 

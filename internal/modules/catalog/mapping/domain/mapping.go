@@ -38,6 +38,10 @@ type Mapping struct {
 	PriceMultiplier         decimal.Decimal `gorm:"type:decimal(20,6);not null;default:0" json:"price_multiplier"` // 0 表示沿用连接定价
 	PriceProtectionBlocked  bool            `gorm:"not null;default:false" json:"price_protection_blocked"`
 	PriceProtectionFloor    money.Amount    `gorm:"type:decimal(20,2);not null;default:0" json:"price_protection_floor"`
+	// 上游文案成功翻译后记录源文本哈希，用于检测上游变更并避免每轮重复调用翻译模型。
+	// 哈希只用于变更检测，不对外暴露原文或任何密钥。
+	UpstreamNameHash        string          `gorm:"type:char(64);not null;default:''" json:"-"`
+	UpstreamDescriptionHash string          `gorm:"type:char(64);not null;default:''" json:"-"`
 	IsActive                bool            `gorm:"not null;default:true" json:"is_active"`
 	LastSyncedAt            *time.Time      `json:"last_synced_at,omitempty"`
 	CreatedAt               time.Time       `gorm:"index" json:"created_at"`

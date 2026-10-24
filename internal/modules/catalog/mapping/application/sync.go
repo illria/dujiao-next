@@ -1077,6 +1077,7 @@ func (s *Service) ensureProdSellerCategory() (uint, error) {
 func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *siteconnectiondomain.Connection, source *upstream.ProdSellerProduct, now time.Time) (*mappingdomain.Mapping, error) {
 	externalID := strings.TrimSpace(source.ID)
 	externalIDRef := externalID
+	translated := s.translateProdSellerContent(source)
 	sourcePrice := source.Price
 	priceProtectionFloor, priceProtectionBlocked, err := priceBelowProtectionFloor(conn, sourcePrice, priceForMapping(conn, nil, sourcePrice, decimal.Zero))
 	if err != nil {
@@ -1096,15 +1097,21 @@ func (s *Service) createProdSellerProduct(connectionID, categoryID uint, conn *s
 		IsActive:                  true,
 		LastSyncedAt:              &now,
 	}
+	if translated != nil {
+		mapping.UpstreamNameHash = prodSellerTextHash(source.Name)
+		mapping.UpstreamDescriptionHash = prodSellerTextHash(source.Description)
+	}
 	localPrice := priceForMapping(conn, mapping, sourcePrice, decimal.Zero)
 	slug := prodSellerSlug(connectionID, externalID)
 	supported := prodSellerProductSupported(source)
+	titleZhCN, titleZhTW := translatedTitle(translated)
+	descriptionZhCN, descriptionZhTW := translatedDescription(translated)
 	product := &productdomain.Product{
 		CategoryID:       categoryID,
 		Slug:             slug,
-		TitleJSON:        prodSellerLocalizedText(source.Name),
-		DescriptionJSON:  prodSellerLocalizedText(source.Description),
-		ContentJSON:      prodSellerLocalizedText(source.Description),
+		TitleJSON:        prodSellerLocalizedTextWithTranslation(source.Name, titleZhCN, titleZhTW),
+		DescriptionJSON:  prodSellerLocalizedTextWithTranslation(source.Description, descriptionZhCN, descriptionZhTW),
+		ContentJSON:      prodSellerLocalizedTextWithTranslation(source.Description, descriptionZhCN, descriptionZhTW),
 		PriceAmount:      money.FromDecimal(localPrice),
 		CostPriceAmount:  money.FromDecimal(convertCurrency(sourcePrice, conn.ExchangeRate).Round(2)),
 		Images:           jsonslice.Strings(nonEmptySourceImage(source.ImageURL)),
@@ -1250,11 +1257,17 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 		return err
 	}
 
-	// 上游同步只负责补齐缺失的多语言内容，不覆盖管理员已经维护的本地文案。
-	// 否则每次定时同步都会把后台刚保存的中文标题/描述恢复成英文。
-	localProduct.TitleJSON = preserveProdSellerLocalizedText(localProduct.TitleJSON, source.Name)
-	localProduct.DescriptionJSON = preserveProdSellerLocalizedText(localProduct.DescriptionJSON, source.Description)
-	localProduct.ContentJSON = preserveProdSellerLocalizedText(localProduct.ContentJSON, source.Description)
+	// 翻译请求必须发生在商品写入之前、事务之外。文案哈希只有在翻译成功后
+	// 才推进，这样翻译服务暂时失败时下一轮同步会自动重试，而价格/库存仍可更新。
+	var translated *mappingcontract.ProductTranslationResult
+	if s.translator != nil && needsProdSellerTranslation(mapping, localProduct, source) {
+		translated = s.translateProdSellerContent(source)
+	}
+	titleZhCN, titleZhTW := translatedTitle(translated)
+	descriptionZhCN, descriptionZhTW := translatedDescription(translated)
+	localProduct.TitleJSON = syncProdSellerLocalizedText(localProduct.TitleJSON, source.Name, titleZhCN, titleZhTW, translated != nil)
+	localProduct.DescriptionJSON = syncProdSellerLocalizedText(localProduct.DescriptionJSON, source.Description, descriptionZhCN, descriptionZhTW, translated != nil)
+	localProduct.ContentJSON = syncProdSellerLocalizedText(localProduct.ContentJSON, source.Description, descriptionZhCN, descriptionZhTW, translated != nil)
 	localProduct.Images = jsonslice.Strings(nonEmptySourceImage(source.ImageURL))
 	localProduct.IsMapped = true
 	localProduct.FulfillmentType = constants.FulfillmentTypeUpstream
@@ -1274,6 +1287,10 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 	mapping.UpstreamPublicPrice = money.FromDecimal(source.PublicPrice.Round(2))
 	mapping.IsActive = true
 	mapping.LastSyncedAt = &now
+	if translated != nil {
+		mapping.UpstreamNameHash = prodSellerTextHash(source.Name)
+		mapping.UpstreamDescriptionHash = prodSellerTextHash(source.Description)
+	}
 	return s.mappings.Update(mapping)
 }
 
@@ -1326,12 +1343,100 @@ func (s *Service) repairProdSellerLocalProductID(mapping *mappingdomain.Mapping)
 	return errors.New("prodseller mapping has no recoverable local product")
 }
 
+func (s *Service) translateProdSellerContent(source *upstream.ProdSellerProduct) *mappingcontract.ProductTranslationResult {
+	if s == nil || s.translator == nil || source == nil {
+		return nil
+	}
+	if strings.TrimSpace(source.Name) == "" && strings.TrimSpace(source.Description) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := s.translator.Translate(ctx, mappingcontract.ProductTranslationRequest{
+		Name:        source.Name,
+		Description: source.Description,
+	})
+	if err != nil {
+		// 翻译失败不阻塞价格、库存和英文原文同步；未推进哈希可让下一轮自动重试。
+		logger.Warnw("prodseller_product_translation_failed",
+			"product_id", strings.TrimSpace(source.ID),
+			"error", err,
+		)
+		return nil
+	}
+	return &result
+}
+
+func needsProdSellerTranslation(mapping *mappingdomain.Mapping, product *productdomain.Product, source *upstream.ProdSellerProduct) bool {
+	if source == nil || mapping == nil {
+		return true
+	}
+	if mapping.UpstreamNameHash != prodSellerTextHash(source.Name) || mapping.UpstreamDescriptionHash != prodSellerTextHash(source.Description) {
+		return true
+	}
+	if product == nil {
+		return true
+	}
+	if strings.TrimSpace(source.Name) != "" && (strings.TrimSpace(localizedTextString(product.TitleJSON[constants.LocaleZhCN])) == "" || strings.TrimSpace(localizedTextString(product.TitleJSON[constants.LocaleZhTW])) == "") {
+		return true
+	}
+	if strings.TrimSpace(source.Description) != "" && (strings.TrimSpace(localizedTextString(product.DescriptionJSON[constants.LocaleZhCN])) == "" || strings.TrimSpace(localizedTextString(product.DescriptionJSON[constants.LocaleZhTW])) == "") {
+		return true
+	}
+	return false
+}
+
+func prodSellerTextHash(text string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(text)))
+	return hex.EncodeToString(digest[:])
+}
+
+func translatedTitle(result *mappingcontract.ProductTranslationResult) (string, string) {
+	if result == nil {
+		return "", ""
+	}
+	return result.TitleZhCN, result.TitleZhTW
+}
+
+func translatedDescription(result *mappingcontract.ProductTranslationResult) (string, string) {
+	if result == nil {
+		return "", ""
+	}
+	return result.DescriptionZhCN, result.DescriptionZhTW
+}
+
 func prodSellerLocalizedText(text string) jsonmap.JSON {
 	return jsonmap.JSON{
 		constants.LocaleZhCN: text,
 		constants.LocaleZhTW: text,
 		constants.LocaleEnUS: text,
 	}
+}
+
+func prodSellerLocalizedTextWithTranslation(upstreamText string, translated ...string) jsonmap.JSON {
+	result := prodSellerLocalizedText(upstreamText)
+	if len(translated) > 0 && strings.TrimSpace(translated[0]) != "" {
+		result[constants.LocaleZhCN] = translated[0]
+	}
+	if len(translated) > 1 && strings.TrimSpace(translated[1]) != "" {
+		result[constants.LocaleZhTW] = translated[1]
+	}
+	return result
+}
+
+func syncProdSellerLocalizedText(existing jsonmap.JSON, upstreamText, zhCN, zhTW string, translated bool) jsonmap.JSON {
+	result := preserveProdSellerLocalizedText(existing, upstreamText)
+	// 英文是上游事实来源，每次同步都更新；中文只有在本轮翻译成功时才更新。
+	result[constants.LocaleEnUS] = upstreamText
+	if translated {
+		if strings.TrimSpace(zhCN) != "" {
+			result[constants.LocaleZhCN] = zhCN
+		}
+		if strings.TrimSpace(zhTW) != "" {
+			result[constants.LocaleZhTW] = zhTW
+		}
+	}
+	return result
 }
 
 // preserveProdSellerLocalizedText 保留后台维护的本地化内容，同时兼容旧版使用的 en 键。

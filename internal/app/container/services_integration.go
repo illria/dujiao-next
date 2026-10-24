@@ -6,6 +6,7 @@ import (
 	"github.com/dujiao-next/internal/logger"
 	apicredentialapp "github.com/dujiao-next/internal/modules/apicredential/application"
 	auditlogapp "github.com/dujiao-next/internal/modules/auditlog/application"
+	producttranslation "github.com/dujiao-next/internal/modules/catalog/mapping/infrastructure/translation"
 	channelclientapp "github.com/dujiao-next/internal/modules/channelclient/application"
 	contentapp "github.com/dujiao-next/internal/modules/content/application"
 	localfilestore "github.com/dujiao-next/internal/modules/content/infrastructure/filestore/local"
@@ -81,6 +82,9 @@ func (c *Container) initIntegrationServices() {
 	c.ProductMappingService = productMappingService
 	c.ProductMappingService.SetCategoryCreator(c.CategoryService)
 	c.ProductMappingService.SetSettings(c.SettingService)
+	if translator := producttranslation.NewFromEnv(); translator != nil {
+		c.ProductMappingService.SetProductTranslator(translator)
+	}
 	c.SiteConnectionService.SetMarkupReapplier(c.ProductMappingService)
 	c.OrderService.SetProductMappingService(c.ProductMappingService)
 	var downstreamQueue downstreamcallbackcontract.CallbackQueue
