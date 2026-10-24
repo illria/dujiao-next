@@ -1497,4 +1497,4 @@ func prodSellerSlug(connectionID uint, externalID string) string {
 	hash := sha256.Sum256([]byte(externalID))
 	return fmt.Sprintf("prodseller-%d-%s", connectionID, hex.EncodeToString(hash[:8]))
 }
-
+func prodSellerFulfillmentType(raw string) string {
