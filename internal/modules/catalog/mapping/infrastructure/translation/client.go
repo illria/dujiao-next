@@ -32,10 +32,10 @@ const (
 )
 
 var (
-	ErrAPIKeyMissing        = errors.New("translation api key environment variable is missing")
-	ErrInvalidResponse      = errors.New("translation model response is invalid")
-	ErrUnsupportedText      = errors.New("translation model returned unsupported text")
-	ErrEmptyTranslation     = errors.New("translation model returned empty text")
+	ErrAPIKeyMissing         = errors.New("translation api key environment variable is missing")
+	ErrInvalidResponse       = errors.New("translation model response is invalid")
+	ErrUnsupportedText       = errors.New("translation model returned unsupported text")
+	ErrEmptyTranslation      = errors.New("translation model returned empty text")
 	ErrIncompleteTranslation = errors.New("translation model returned incomplete translation")
 )
 
