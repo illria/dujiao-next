@@ -41,7 +41,7 @@ var (
 
 var (
 	preservedDescriptionTokenPattern = regexp.MustCompile(`https?://[^\s<>"']+|\d+(?:[.,:/-]\d+)*`)
-	unsupportedMarkupPattern        = regexp.MustCompile(`(?i)<\s*/?\s*[a-z][^>]*>`)
+	unsupportedMarkupPattern         = regexp.MustCompile(`(?i)<\s*/?\s*[a-z][^>]*>`)
 )
 
 // Client 是 OpenAI-compatible chat completions 客户端。
