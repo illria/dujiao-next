@@ -461,3 +461,16 @@ func TestNeedsProdSellerTranslationDetectsSourceChangeAndMissingLocale(t *testin
 		t.Fatal("missing Chinese locale must trigger translation")
 	}
 }
+
+func TestNeedsProdSellerTranslationInvalidatesLegacyTranslationHash(t *testing.T) {
+	stock := true
+	source := &upstream.ProdSellerProduct{Name: "Title", Description: "Description", InStock: &stock}
+	product := &productdomain.Product{
+		TitleJSON:       jsonmap.JSON{constants.LocaleZhCN: "中文", constants.LocaleZhTW: "繁中"},
+		DescriptionJSON: jsonmap.JSON{constants.LocaleZhCN: "完整说明", constants.LocaleZhTW: "完整說明"},
+	}
+	mapping := &mappingdomain.Mapping{UpstreamNameHash: "legacy-source-hash", UpstreamDescriptionHash: "legacy-source-hash"}
+	if !needsProdSellerTranslation(mapping, product, source) {
+		t.Fatal("legacy translation hash must trigger one-time faithful retranslation")
+	}
+}

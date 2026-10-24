@@ -1386,8 +1386,13 @@ func needsProdSellerTranslation(mapping *mappingdomain.Mapping, product *product
 	return false
 }
 
+const prodSellerTranslationVersion = "faithful-v2"
+
 func prodSellerTextHash(text string) string {
-	digest := sha256.Sum256([]byte(strings.TrimSpace(text)))
+	// Include the translation policy version so a prompt/validation fix causes
+	// existing products to be translated again instead of keeping stale,
+	// summarized Chinese content forever.
+	digest := sha256.Sum256([]byte(prodSellerTranslationVersion + "\x00" + strings.TrimSpace(text)))
 	return hex.EncodeToString(digest[:])
 }
 

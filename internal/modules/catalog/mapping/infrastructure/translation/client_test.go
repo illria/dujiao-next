@@ -54,6 +54,11 @@ func TestClientTranslateSendsOnlyEnvironmentCredentialAndParsesStructuredRespons
 	if !strings.Contains(userMessage["content"].(string), "Original title") {
 		t.Fatalf("source title was not sent as translation data: %#v", userMessage)
 	}
+	systemMessage, _ := messages[0].(map[string]interface{})
+	systemPrompt, _ := systemMessage["content"].(string)
+	if !strings.Contains(systemPrompt, "完整翻译") || strings.Contains(systemPrompt, "最多三行") {
+		t.Fatalf("system prompt does not require faithful full translation: %q", systemPrompt)
+	}
 }
 
 func TestClientDoesNotExposeResponseBodyOnHTTPFailure(t *testing.T) {
@@ -83,6 +88,22 @@ func TestClientRejectsMissingRequiredTranslationFields(t *testing.T) {
 	_, err := client.Translate(context.Background(), mappingcontract.ProductTranslationRequest{Name: "title"})
 	if err != ErrEmptyTranslation {
 		t.Fatalf("error = %v, want ErrEmptyTranslation", err)
+	}
+}
+
+func TestValidateTranslationRejectsCompressedDescription(t *testing.T) {
+	request := mappingcontract.ProductTranslationRequest{
+		Name:        "Nord VPN 3 months Account",
+		Description: "Nord VPN 3 months Account\nFormat: Gmail | nvpn Passwort\nIMPORTANT\nTo still be able to log in even if the password is changed, use the Social Login method.\nLog in via browser, open Account Settings, connect Google/Apple, then sign in with Google/Apple.",
+	}
+	result := mappingcontract.ProductTranslationResult{
+		TitleZhCN:       "Nord VPN 3个月账号",
+		TitleZhTW:       "Nord VPN 3個月帳號",
+		DescriptionZhCN: "交付格式：自动发放账号与登录信息。有效期：3个月。使用提示：请按官方流程登录。",
+		DescriptionZhTW: "交付格式：自動發放帳號與登入資訊。有效期：3個月。使用提示：請按官方流程登入。",
+	}
+	if err := validateTranslation(request, result); err != ErrIncompleteTranslation {
+		t.Fatalf("validateTranslation error = %v, want ErrIncompleteTranslation", err)
 	}
 }
 
