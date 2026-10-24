@@ -39,7 +39,10 @@ var (
 	ErrIncompleteTranslation = errors.New("translation model returned incomplete translation")
 )
 
-var preservedDescriptionTokenPattern = regexp.MustCompile(`https?://[^\s<>"']+|\d+(?:[.,:/-]\d+)*`)
+var (
+	preservedDescriptionTokenPattern = regexp.MustCompile(`https?://[^\s<>"']+|\d+(?:[.,:/-]\d+)*`)
+	unsupportedMarkupPattern        = regexp.MustCompile(`(?i)<\s*/?\s*[a-z][^>]*>`)
+)
 
 // Client 是 OpenAI-compatible chat completions 客户端。
 // 生产实例只能通过 NewFromEnv 创建，真实密钥只从进程环境变量读取。
@@ -242,7 +245,9 @@ func validateTranslation(request mappingcontract.ProductTranslationRequest, resu
 		}
 	}
 	for _, value := range []string{result.TitleZhCN, result.TitleZhTW, result.DescriptionZhCN, result.DescriptionZhTW} {
-		if strings.ContainsAny(value, "<>") {
+		// Angle brackets are valid source punctuation (for example, > bullets
+		// and -> arrows). Reject actual HTML tags, not those literal symbols.
+		if unsupportedMarkupPattern.MatchString(value) {
 			return ErrUnsupportedText
 		}
 		if utf8.RuneCountInString(value) > 5000 {
