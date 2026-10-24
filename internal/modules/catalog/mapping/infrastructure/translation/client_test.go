@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	mappingcontract "github.com/dujiao-next/internal/modules/catalog/mapping/contract"
 )
@@ -89,6 +90,7 @@ func TestNewFromEnvUsesConfiguredProviderWithoutPersistingCredential(t *testing.
 	t.Setenv(APIKeyEnv, "environment-only-key")
 	t.Setenv(BaseURLEnv, "https://example.invalid/v1")
 	t.Setenv(ModelEnv, "custom-model")
+	t.Setenv(TimeoutEnv, "77")
 
 	client := NewFromEnv()
 	if client == nil || client.baseURL != "https://example.invalid/v1" || client.model != "custom-model" {
@@ -96,5 +98,8 @@ func TestNewFromEnvUsesConfiguredProviderWithoutPersistingCredential(t *testing.
 	}
 	if client.apiKey != "environment-only-key" {
 		t.Fatalf("environment key was not loaded into the request client")
+	}
+	if client.httpClient.Timeout != 77*time.Second {
+		t.Fatalf("translation timeout = %s, want 77s", client.httpClient.Timeout)
 	}
 }

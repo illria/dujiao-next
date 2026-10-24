@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -21,8 +22,11 @@ const (
 	APIKeyEnv       = "TRANSLATION_API_KEY"
 	BaseURLEnv      = "TRANSLATION_API_BASE_URL"
 	ModelEnv        = "TRANSLATION_MODEL"
+	TimeoutEnv      = "TRANSLATION_TIMEOUT_SECONDS"
 	defaultBaseURL  = "https://api.siliconflow.cn/v1"
 	defaultModel    = "Qwen/Qwen3-8B"
+	defaultTimeout  = 120 * time.Second
+	maxTimeout      = 5 * time.Minute
 	maxResponseSize = 256 * 1024
 )
 
@@ -58,7 +62,25 @@ func NewFromEnv() *Client {
 	if model == "" {
 		model = defaultModel
 	}
-	return newClient(baseURL, model, apiKey, &http.Client{Timeout: 30 * time.Second})
+	return newClient(baseURL, model, apiKey, &http.Client{Timeout: translationTimeout()})
+}
+
+// translationTimeout keeps a slow but valid upstream translation from being
+// discarded at the previous 30-second client deadline.
+func translationTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(TimeoutEnv))
+	if raw == "" {
+		return defaultTimeout
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return defaultTimeout
+	}
+	timeout := time.Duration(seconds) * time.Second
+	if timeout > maxTimeout {
+		return maxTimeout
+	}
+	return timeout
 }
 
 // newClient 仅用于包内测试；生产代码不得从配置文件、数据库或连接记录传入密钥。
