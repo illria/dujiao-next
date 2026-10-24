@@ -1250,9 +1250,11 @@ func (s *Service) syncExistingProdSellerProduct(mapping *mappingdomain.Mapping, 
 		return err
 	}
 
-	localProduct.TitleJSON = prodSellerLocalizedText(source.Name)
-	localProduct.DescriptionJSON = prodSellerLocalizedText(source.Description)
-	localProduct.ContentJSON = prodSellerLocalizedText(source.Description)
+	// 上游同步只负责补齐缺失的多语言内容，不覆盖管理员已经维护的本地文案。
+	// 否则每次定时同步都会把后台刚保存的中文标题/描述恢复成英文。
+	localProduct.TitleJSON = preserveProdSellerLocalizedText(localProduct.TitleJSON, source.Name)
+	localProduct.DescriptionJSON = preserveProdSellerLocalizedText(localProduct.DescriptionJSON, source.Description)
+	localProduct.ContentJSON = preserveProdSellerLocalizedText(localProduct.ContentJSON, source.Description)
 	localProduct.Images = jsonslice.Strings(nonEmptySourceImage(source.ImageURL))
 	localProduct.IsMapped = true
 	localProduct.FulfillmentType = constants.FulfillmentTypeUpstream
@@ -1325,7 +1327,42 @@ func (s *Service) repairProdSellerLocalProductID(mapping *mappingdomain.Mapping)
 }
 
 func prodSellerLocalizedText(text string) jsonmap.JSON {
-	return jsonmap.JSON{"zh-CN": text, "zh-TW": text, "en": text}
+	return jsonmap.JSON{
+		constants.LocaleZhCN: text,
+		constants.LocaleZhTW: text,
+		constants.LocaleEnUS: text,
+	}
+}
+
+// preserveProdSellerLocalizedText 保留后台维护的本地化内容，同时兼容旧版使用的 en 键。
+// 新增商品仍会用上游文本填充三种受支持语言；已有商品只有在对应语言为空时才补值。
+func preserveProdSellerLocalizedText(existing jsonmap.JSON, upstreamText string) jsonmap.JSON {
+	result := make(jsonmap.JSON, len(existing)+3)
+	for key, value := range existing {
+		result[key] = value
+	}
+
+	if strings.TrimSpace(localizedTextString(result[constants.LocaleZhCN])) == "" {
+		result[constants.LocaleZhCN] = upstreamText
+	}
+	if strings.TrimSpace(localizedTextString(result[constants.LocaleZhTW])) == "" {
+		result[constants.LocaleZhTW] = upstreamText
+	}
+	if strings.TrimSpace(localizedTextString(result[constants.LocaleEnUS])) == "" {
+		legacyEnglish := strings.TrimSpace(localizedTextString(result["en"]))
+		if legacyEnglish != "" {
+			result[constants.LocaleEnUS] = legacyEnglish
+		} else {
+			result[constants.LocaleEnUS] = upstreamText
+		}
+	}
+	delete(result, "en")
+	return result
+}
+
+func localizedTextString(value interface{}) string {
+	text, _ := value.(string)
+	return text
 }
 
 func prodSellerSlug(connectionID uint, externalID string) string {
