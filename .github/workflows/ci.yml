@@ -1,3 +1,4 @@
+# Acceptance runs must complete before production deployment.
 name: ci
 
 on:
