@@ -107,6 +107,22 @@ func TestValidateTranslationRejectsCompressedDescription(t *testing.T) {
 	}
 }
 
+func TestValidateTranslationRejectsGenericDeliveryTemplate(t *testing.T) {
+	request := mappingcontract.ProductTranslationRequest{
+		Name:        "Autodesk all Apps 1 Year",
+		Description: "1 year subscription to Autodesk Student.\nInvitation in customers emails to Autodesk.\nAlmost all apps are included (3ds Max, AutoCAD, Fusion).\nFull warranty.",
+	}
+	result := mappingcontract.ProductTranslationResult{
+		TitleZhCN:       "Autodesk 全家桶（1年）",
+		TitleZhTW:       "Autodesk 全家桶（1年）",
+		DescriptionZhCN: "交付格式：自动发放账号或激活信息。\n有效期：1年。\n使用提示：请按对应平台官方流程登录、兑换或激活。",
+		DescriptionZhTW: "交付格式：自動發放帳號或啟用資訊。\n有效期：1年。\n使用提示：請按對應平台官方流程登入、兌換或啟用。",
+	}
+	if err := validateTranslation(request, result); err != ErrIncompleteTranslation {
+		t.Fatalf("validateTranslation error = %v, want ErrIncompleteTranslation", err)
+	}
+}
+
 func TestValidateTranslationAllowsLiteralAngleBracketBullets(t *testing.T) {
 	request := mappingcontract.ProductTranslationRequest{
 		Name:        "Gemini Pro 18Months (link)",
