@@ -44,6 +44,8 @@ var (
 	unsupportedMarkupPattern         = regexp.MustCompile(`(?i)<\s*/?\s*[a-z][^>]*>`)
 )
 
+var genericDescriptionTemplateMarkers = []string{"交付格式：", "有效期：", "使用提示："}
+
 // Client 是 OpenAI-compatible chat completions 客户端。
 // 生产实例只能通过 NewFromEnv 创建，真实密钥只从进程环境变量读取。
 type Client struct {
@@ -264,6 +266,13 @@ func validateDescriptionFidelity(source, translated string) error {
 		return nil
 	}
 
+	// Do not accept the old generic delivery notice as a translation of a
+	// concrete upstream description. This is stricter than a length check and
+	// catches medium-length source text that could otherwise fit the template.
+	if isGenericDescriptionTemplate(translated) && !isGenericDescriptionTemplate(source) {
+		return ErrIncompleteTranslation
+	}
+
 	// A long source cannot be faithfully represented by a short generic
 	// delivery notice. This catches the previous failure mode while allowing
 	// normal Chinese translations to be shorter than English originals.
@@ -288,4 +297,13 @@ func validateDescriptionFidelity(source, translated string) error {
 		}
 	}
 	return nil
+}
+
+func isGenericDescriptionTemplate(value string) bool {
+	for _, marker := range genericDescriptionTemplateMarkers {
+		if !strings.Contains(value, marker) {
+			return false
+		}
+	}
+	return true
 }
